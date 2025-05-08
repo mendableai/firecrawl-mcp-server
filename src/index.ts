@@ -23,10 +23,25 @@ dotenv.config();
 // Tool definitions
 const SCRAPE_TOOL: Tool = {
   name: 'firecrawl_scrape',
-  description:
-    'Scrape a single webpage with advanced options for content extraction. ' +
-    'Supports various formats including markdown, HTML, and screenshots. ' +
-    'Can execute custom actions like clicking or scrolling before scraping.',
+  description: `
+Scrape content from a single URL with advanced options.
+
+**Best for:** Single page content extraction, when you know exactly which page contains the information.
+**Not recommended for:** Multiple pages (use batch_scrape), unknown page (use search), structured data (use extract).
+**Common mistakes:** Using scrape for a list of URLs (use batch_scrape instead).
+**Prompt Example:** "Get the content of the page at https://example.com."
+**Usage Example:**
+\`\`\`json
+{
+  "name": "firecrawl_scrape",
+  "arguments": {
+    "url": "https://example.com",
+    "formats": ["markdown"]
+  }
+}
+\`\`\`
+**Returns:** Markdown, HTML, or other formats as specified.
+`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -180,8 +195,24 @@ const SCRAPE_TOOL: Tool = {
 
 const MAP_TOOL: Tool = {
   name: 'firecrawl_map',
-  description:
-    'Discover URLs from a starting point. Can use both sitemap.xml and HTML link discovery.',
+  description: `
+Map a website to discover all indexed URLs on the site.
+
+**Best for:** Discovering URLs on a website before deciding what to scrape; finding specific sections of a website.
+**Not recommended for:** When you already know which specific URL you need (use scrape or batch_scrape); when you need the content of the pages (use scrape after mapping).
+**Common mistakes:** Using crawl to discover URLs instead of map.
+**Prompt Example:** "List all URLs on example.com."
+**Usage Example:**
+\`\`\`json
+{
+  "name": "firecrawl_map",
+  "arguments": {
+    "url": "https://example.com"
+  }
+}
+\`\`\`
+**Returns:** Array of URLs found on the site.
+`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -216,9 +247,29 @@ const MAP_TOOL: Tool = {
 
 const CRAWL_TOOL: Tool = {
   name: 'firecrawl_crawl',
-  description:
-    'Start an asynchronous crawl of multiple pages from a starting URL. ' +
-    'Supports depth control, path filtering, and webhook notifications.',
+  description: `
+Starts an asynchronous crawl job on a website and extracts content from all pages.
+
+**Best for:** Extracting content from multiple related pages, when you need comprehensive coverage.
+**Not recommended for:** Extracting content from a single page (use scrape); when token limits are a concern (use map + batch_scrape); when you need fast results (crawling can be slow).
+**Warning:** Crawl responses can be very large and may exceed token limits. Limit the crawl depth and number of pages, or use map + batch_scrape for better control.
+**Common mistakes:** Setting limit or maxDepth too high (causes token overflow); using crawl for a single page (use scrape instead).
+**Prompt Example:** "Get all blog posts from the first two levels of example.com/blog."
+**Usage Example:**
+\`\`\`json
+{
+  "name": "firecrawl_crawl",
+  "arguments": {
+    "url": "https://example.com/blog/*",
+    "maxDepth": 2,
+    "limit": 100,
+    "allowExternalLinks": false,
+    "deduplicateSimilarURLs": true
+  }
+}
+\`\`\`
+**Returns:** Operation ID for status checking; use firecrawl_check_crawl_status to check progress.
+`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -328,7 +379,20 @@ const CRAWL_TOOL: Tool = {
 
 const CHECK_CRAWL_STATUS_TOOL: Tool = {
   name: 'firecrawl_check_crawl_status',
-  description: 'Check the status of a crawl job.',
+  description: `
+Check the status of a crawl job.
+
+**Usage Example:**
+\`\`\`json
+{
+  "name": "firecrawl_check_crawl_status",
+  "arguments": {
+    "id": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+\`\`\`
+**Returns:** Status and progress of the crawl job, including results if available.
+`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -343,9 +407,31 @@ const CHECK_CRAWL_STATUS_TOOL: Tool = {
 
 const SEARCH_TOOL: Tool = {
   name: 'firecrawl_search',
-  description:
-    'Search and retrieve content from web pages with optional scraping. ' +
-    'Returns SERP results by default (url, title, description) or full page content when scrapeOptions are provided.',
+  description: `
+Search the web and optionally extract content from search results.
+
+**Best for:** Finding specific information across multiple websites, when you don't know which website has the information; when you need the most relevant content for a query.
+**Not recommended for:** When you already know which website to scrape (use scrape); when you need comprehensive coverage of a single website (use map or crawl).
+**Common mistakes:** Using crawl or map for open-ended questions (use search instead).
+**Prompt Example:** "Find the latest research papers on AI published in 2023."
+**Usage Example:**
+\`\`\`json
+{
+  "name": "firecrawl_search",
+  "arguments": {
+    "query": "latest AI research papers 2023",
+    "limit": 5,
+    "lang": "en",
+    "country": "us",
+    "scrapeOptions": {
+      "formats": ["markdown"],
+      "onlyMainContent": true
+    }
+  }
+}
+\`\`\`
+**Returns:** Array of search results (with optional scraped content).
+`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -417,9 +503,45 @@ const SEARCH_TOOL: Tool = {
 
 const EXTRACT_TOOL: Tool = {
   name: 'firecrawl_extract',
-  description:
-    'Extract structured information from web pages using LLM. ' +
-    'Supports both cloud AI and self-hosted LLM extraction.',
+  description: `
+Extract structured information from web pages using LLM capabilities. Supports both cloud AI and self-hosted LLM extraction.
+
+**Best for:** Extracting specific structured data like prices, names, details.
+**Not recommended for:** When you need the full content of a page (use scrape); when you're not looking for specific structured data.
+**Arguments:**
+- urls: Array of URLs to extract information from
+- prompt: Custom prompt for the LLM extraction
+- systemPrompt: System prompt to guide the LLM
+- schema: JSON schema for structured data extraction
+- allowExternalLinks: Allow extraction from external links
+- enableWebSearch: Enable web search for additional context
+- includeSubdomains: Include subdomains in extraction
+**Prompt Example:** "Extract the product name, price, and description from these product pages."
+**Usage Example:**
+\`\`\`json
+{
+  "name": "firecrawl_extract",
+  "arguments": {
+    "urls": ["https://example.com/page1", "https://example.com/page2"],
+    "prompt": "Extract product information including name, price, and description",
+    "systemPrompt": "You are a helpful assistant that extracts product information",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "description": { "type": "string" }
+      },
+      "required": ["name", "price"]
+    },
+    "allowExternalLinks": false,
+    "enableWebSearch": false,
+    "includeSubdomains": false
+  }
+}
+\`\`\`
+**Returns:** Extracted structured data as defined by your schema.
+`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -459,8 +581,31 @@ const EXTRACT_TOOL: Tool = {
 
 const DEEP_RESEARCH_TOOL: Tool = {
   name: 'firecrawl_deep_research',
-  description:
-    'Conduct deep research on a query using web crawling, search, and AI analysis.',
+  description: `
+Conduct deep web research on a query using intelligent crawling, search, and LLM analysis.
+
+**Best for:** Complex research questions requiring multiple sources, in-depth analysis.
+**Not recommended for:** Simple questions that can be answered with a single search; when you need very specific information from a known page (use scrape); when you need results quickly (deep research can take time).
+**Arguments:**
+- query (string, required): The research question or topic to explore.
+- maxDepth (number, optional): Maximum recursive depth for crawling/search (default: 3).
+- timeLimit (number, optional): Time limit in seconds for the research session (default: 120).
+- maxUrls (number, optional): Maximum number of URLs to analyze (default: 50).
+**Prompt Example:** "Research the environmental impact of electric vehicles versus gasoline vehicles."
+**Usage Example:**
+\`\`\`json
+{
+  "name": "firecrawl_deep_research",
+  "arguments": {
+    "query": "What are the environmental impacts of electric vehicles compared to gasoline vehicles?",
+    "maxDepth": 3,
+    "timeLimit": 120,
+    "maxUrls": 50
+  }
+}
+\`\`\`
+**Returns:** Final analysis generated by an LLM based on research. (data.finalAnalysis); may also include structured activities and sources used in the research process.
+`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -487,8 +632,29 @@ const DEEP_RESEARCH_TOOL: Tool = {
 
 const GENERATE_LLMSTXT_TOOL: Tool = {
   name: 'firecrawl_generate_llmstxt',
-  description:
-    'Generate standardized LLMs.txt file for a given URL, which provides context about how LLMs should interact with the website.',
+  description: `
+Generate a standardized llms.txt (and optionally llms-full.txt) file for a given domain. This file defines how large language models should interact with the site.
+
+**Best for:** Creating machine-readable permission guidelines for AI models.
+**Not recommended for:** General content extraction or research.
+**Arguments:**
+- url (string, required): The base URL of the website to analyze.
+- maxUrls (number, optional): Max number of URLs to include (default: 10).
+- showFullText (boolean, optional): Whether to include llms-full.txt contents in the response.
+**Prompt Example:** "Generate an LLMs.txt file for example.com."
+**Usage Example:**
+\`\`\`json
+{
+  "name": "firecrawl_generate_llmstxt",
+  "arguments": {
+    "url": "https://example.com",
+    "maxUrls": 20,
+    "showFullText": true
+  }
+}
+\`\`\`
+**Returns:** LLMs.txt file contents (and optionally llms-full.txt).
+`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -952,7 +1118,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: trimResponseText(
-                `Started crawl for ${url} with job ID: ${response.id}`
+                `Started crawl for ${url} with job ID: ${response.id}. Use firecrawl_check_crawl_status to check progress.`
               ),
             },
           ],
