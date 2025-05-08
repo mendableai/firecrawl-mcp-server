@@ -20,6 +20,7 @@ RUN npm run build
 # Use a smaller Node.js image for the final image
 FROM python:3.11-slim AS release
 
+
 # Set the working directory inside the container
 WORKDIR /app
 RUN pip install mcpo uv
