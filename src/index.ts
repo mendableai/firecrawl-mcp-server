@@ -7,6 +7,7 @@ import {
   Tool,
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  isInitializeRequest,
 } from '@modelcontextprotocol/sdk/types.js';
 import FirecrawlApp, {
   type ScrapeParams,
@@ -17,6 +18,8 @@ import FirecrawlApp, {
 
 import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { randomUUID } from 'node:crypto';
 
 dotenv.config();
 
@@ -768,7 +771,7 @@ async function withRetry<T>(
     if (isRateLimit && attempt < CONFIG.retry.maxAttempts) {
       const delayMs = Math.min(
         CONFIG.retry.initialDelay *
-          Math.pow(CONFIG.retry.backoffFactor, attempt - 1),
+        Math.pow(CONFIG.retry.backoffFactor, attempt - 1),
         CONFIG.retry.maxDelay
       );
 
@@ -973,9 +976,8 @@ Status: ${response.status}
 Progress: ${response.completed}/${response.total}
 Credits Used: ${response.creditsUsed}
 Expires At: ${response.expiresAt}
-${
-  response.data.length > 0 ? '\nResults:\n' + formatResults(response.data) : ''
-}`;
+${response.data.length > 0 ? '\nResults:\n' + formatResults(response.data) : ''
+          }`;
         return {
           content: [{ type: 'text', text: trimResponseText(status) }],
           isError: false,
@@ -1255,9 +1257,8 @@ ${result.markdown ? `\nContent:\n${result.markdown}` : ''}`
   } catch (error) {
     // Log detailed error information
     safeLog('error', {
-      message: `Request failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      message: `Request failed: ${error instanceof Error ? error.message : String(error)
+        }`,
       tool: request.params.name,
       arguments: request.params.arguments,
       timestamp: new Date().toISOString(),
@@ -1361,6 +1362,96 @@ async function runSSELocalServer() {
   }
 }
 
+
+async function runHTTPStreamableServer() {
+  const app = express();
+  app.use(express.json());
+
+  const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+
+  // 单一端点处理所有MCP请求
+  app.all('/:apiKey/mcp', async (req: Request, res: Response) => {
+
+    try {
+      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      let transport: StreamableHTTPServerTransport;
+
+      if (sessionId && transports[sessionId]) {
+        transport = transports[sessionId];
+      } else if (!sessionId && req.method === 'POST' && isInitializeRequest(req.body)) {
+
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => {
+            const id = randomUUID();
+            return id;
+          },
+          onsessioninitialized: (sid: string) => {
+            transports[sid] = transport;
+          }
+        });
+
+        transport.onclose = () => {
+          const sid = transport.sessionId;
+          if (sid && transports[sid]) {
+            delete transports[sid];
+          }
+        };
+        console.log('Creating server instance');
+        console.log('Connecting transport to server');
+        await server.connect(transport);
+
+        await transport.handleRequest(req, res, req.body);
+        return;
+      } else {
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32000,
+            message: 'Invalid or missing session ID',
+          },
+          id: null,
+        });
+        return;
+      }
+
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32603,
+            message: 'Internal server error',
+          },
+          id: null,
+        });
+      }
+    }
+  });
+
+  const PORT = 8080;
+  const appServer = app.listen(PORT, () => {
+    console.log(`MCP Streamable HTTP Server listening on port ${PORT}`);
+  });
+
+  process.on('SIGINT', async () => {
+    console.log('Shutting down server...');
+    for (const sessionId in transports) {
+      try {
+        console.log(`Closing transport for session ${sessionId}`);
+        await transports[sessionId].close();
+        delete transports[sessionId];
+      } catch (error) {
+        console.error(`Error closing transport for session ${sessionId}:`, error);
+      }
+    }
+    appServer.close(() => {
+      console.log('Server shutdown complete');
+      process.exit(0);
+    });
+  });
+}
+
 async function runSSECloudServer() {
   const transports: { [sessionId: string]: SSEServerTransport } = {};
   const app = express();
@@ -1432,6 +1523,11 @@ if (process.env.CLOUD_SERVICE === 'true') {
   });
 } else if (process.env.SSE_LOCAL === 'true') {
   runSSELocalServer().catch((error: any) => {
+    console.error('Fatal error running server:', error);
+    process.exit(1);
+  });
+} else if (process.env.HTTP_STREAMABLE_SERVER === 'true') {
+  runHTTPStreamableServer().catch((error: any) => {
     console.error('Fatal error running server:', error);
     process.exit(1);
   });
