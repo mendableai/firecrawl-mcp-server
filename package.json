@@ -25,7 +25,7 @@
   "license": "MIT",
   "dependencies": {
     "@mendable/firecrawl-js": "^1.19.0",
-    "@modelcontextprotocol/sdk": "^1.4.1",
+    "@modelcontextprotocol/sdk": "^1.11.1",
     "dotenv": "^16.4.7",
     "express": "^5.1.0",
     "shx": "^0.3.4",
