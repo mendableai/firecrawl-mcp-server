@@ -1369,7 +1369,7 @@ async function runHTTPStreamableServer() {
 
   const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
-  // 单一端点处理所有MCP请求
+  // A single endpoint handles all MCP requests.
   app.all('/:apiKey/mcp', async (req: Request, res: Response) => {
 
     try {
