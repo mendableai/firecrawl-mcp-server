@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/mendableai-firecrawl-mcp-server-badge.png)](https://mseep.ai/app/mendableai-firecrawl-mcp-server)
+
 # Firecrawl MCP Server
 
 A Model Context Protocol (MCP) server implementation that integrates with [Firecrawl](https://github.com/mendableai/firecrawl) for web scraping capabilities.
