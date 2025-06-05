@@ -771,6 +771,33 @@ Thanks to [@vrknetha](https://github.com/vrknetha), [@cawstudios](https://caw.te
 
 Thanks to MCP.so and Klavis AI for hosting and [@gstarwd](https://github.com/gstarwd), [@xiangkaiz](https://github.com/xiangkaiz) and [@zihaolin96](https://github.com/zihaolin96) for integrating our server.
 
+
+## Resources 
+
+<details>
+<summary><b>Open MCP Marketplace API Support</b></summary>
+
+![MCP Marketplace User Review Rating Badge](http://www.deepnlp.org/api/marketplace/svg?mendableai/firecrawl-mcp-server)|[Reviews](http://www.deepnlp.org/store/ai-agent/mcp-server/pub-mendableai/firecrawl-mcp-server)|[GitHub](https://github.com/AI-Agent-Hub/mcp-marketplace)|[Doc](http://www.deepnlp.org/doc/mcp_marketplace)|[MCP Marketplace](http://www.deepnlp.org/store/ai-agent/mcp-server)
+
+Allow AI/Agent/LLM to find this MCP Server via common python/typescript API, search and explore relevant servers and tools
+
+***Example: Search Server and Tools***
+```python
+import anthropic
+import mcp_marketplace as mcpm
+
+result_q = mcpm.search(query="firecrawl mcp server", mode="list", page_id=0, count_per_page=100, config_name="deepnlp") # search server by category choose various endpoint
+result_id = mcpm.search(id="mendableai/firecrawl-mcp-server", mode="list", page_id=0, count_per_page=100, config_name="deepnlp")      # search server by id choose various endpoint 
+tools = mcpm.list_tools(id="mendableai/firecrawl-mcp-server", config_name="deepnlp_tool")
+# Call Claude to Choose Tools Function Calls 
+# client = anthropic.Anthropic()
+# response = client.messages.create(model="claude-opus-4-20250514", max_tokens=1024, tools=tools, messages=[])
+```
+
+</details>
+
+
+
 ## License
 
 MIT License - see LICENSE file for details
