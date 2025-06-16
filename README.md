@@ -103,6 +103,52 @@ env SSE_LOCAL=true FIRECRAWL_API_KEY=fc-YOUR_API_KEY npx -y firecrawl-mcp
 
 Use the url: http://localhost:3000/sse
 
+### Running with HTTP Streamable Mode
+
+To run the server using HTTP Streamable transport:
+
+```bash
+env HTTP_STREAMABLE_SERVER=true FIRECRAWL_API_KEY=fc-YOUR_API_KEY npx -y firecrawl-mcp
+```
+
+This will start the server on port 8080. Clients can connect to the MCP server using the endpoint:
+```
+POST http://localhost:8080/{apiKey}/mcp
+```
+
+For MCP client integration, use the following configuration:
+
+```javascript
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+
+// Create an MCP client
+const client = new Client();
+
+// Configure HTTP Streamable transport
+const transport = new StreamableHTTPClientTransport({
+  url: `http://localhost:8080/your-api-key/mcp`,
+});
+
+// Connect to the server
+await client.connect(transport);
+
+// List available tools
+const { tools } = await client.listTools();
+console.log('Available tools:', tools.map(t => t.name));
+
+// Call tool example
+const result = await client.callTool({
+  name: 'firecrawl_scrape',
+  arguments: {
+    url: 'https://example.com',
+    formats: ['markdown']
+  }
+});
+
+console.log('Scrape result:', result);
+```
+
 ### Installing via Smithery (Legacy)
 
 To install Firecrawl for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@mendableai/mcp-server-firecrawl):
@@ -182,12 +228,16 @@ Optionally, you can add it to a file called `.vscode/mcp.json` in your workspace
 
 #### Optional Configuration
 
-##### Retry Configuration
-
 - `FIRECRAWL_RETRY_MAX_ATTEMPTS`: Maximum number of retry attempts (default: 3)
 - `FIRECRAWL_RETRY_INITIAL_DELAY`: Initial delay in milliseconds before first retry (default: 1000)
 - `FIRECRAWL_RETRY_MAX_DELAY`: Maximum delay in milliseconds between retries (default: 10000)
 - `FIRECRAWL_RETRY_BACKOFF_FACTOR`: Exponential backoff multiplier (default: 2)
+
+##### Server Mode Configuration
+
+- `SSE_LOCAL`: Set to "true" to use Server-Sent Events (SSE) transport (default: false)
+- `HTTP_STREAMABLE_SERVER`: Set to "true" to use HTTP Streamable transport (default: false)
+- `CLOUD_SERVICE`: Set to "true" for cloud mode operation (default: false)
 
 ##### Credit Usage Monitoring
 
@@ -225,6 +275,18 @@ export FIRECRAWL_API_KEY=your-api-key  # If your instance requires auth
 # Custom retry configuration
 export FIRECRAWL_RETRY_MAX_ATTEMPTS=10
 export FIRECRAWL_RETRY_INITIAL_DELAY=500     # Start with faster retries
+```
+
+For HTTP Streamable server mode:
+
+```bash
+# Run in HTTP Streamable mode
+export HTTP_STREAMABLE_SERVER=true
+export FIRECRAWL_API_KEY=your-api-key
+export PORT=8080  # Optional: customize port (default: 8080)
+
+# Start the server
+npx -y firecrawl-mcp
 ```
 
 ### Usage with Claude Desktop
