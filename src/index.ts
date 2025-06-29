@@ -844,7 +844,7 @@ function isGenerateLLMsTextOptions(
 const server = new Server(
   {
     name: 'firecrawl-mcp',
-    version: '1.7.0',
+    version: '1.9.0',
   },
   {
     capabilities: {
@@ -860,8 +860,7 @@ const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY;
 
 // Check if API key is required (only for cloud service)
 if (
-  process.env.CLOUD_SERVICE !== 'true' &&
-  !FIRECRAWL_API_URL &&
+  process.env.CLOUD_SERVICE === 'true' &&
   !FIRECRAWL_API_KEY
 ) {
   console.error(
@@ -1298,9 +1297,9 @@ ${result.markdown ? `\nContent:\n${result.markdown}` : ''}`
           const response = await client.deepResearch(
             args.query as string,
             {
-              maxDepth: args.maxDepth as number,
-              timeLimit: args.timeLimit as number,
-              maxUrls: args.maxUrls as number,
+              maxDepth: typeof args.maxDepth === 'number' ? args.maxDepth : undefined,
+              timeLimit: typeof args.timeLimit === 'number' ? args.timeLimit : undefined,
+              maxUrls: typeof args.maxUrls === 'number' ? args.maxUrls : undefined,
               // @ts-expect-error Extended API options including origin
               origin: 'mcp-server',
             },
@@ -1508,7 +1507,7 @@ async function runSSELocalServer() {
 
   // Endpoint for the client to POST messages
   // Remove express.json() middleware - let the transport handle the body
-  app.post('/messages', (req, res) => {
+  app.post('/messages', express.json(), (req, res) => {
     if (transport) {
       transport.handlePostMessage(req, res);
     }
@@ -1552,7 +1551,6 @@ async function runSSECloudServer() {
   // Remove express.json() middleware - let the transport handle the body
   app.post(
     '/:apiKey/messages',
-    express.json(),
     async (req: Request, res: Response) => {
       const apiKey = req.params.apiKey;
       const body = req.body;
@@ -1570,7 +1568,7 @@ async function runSSECloudServer() {
         enrichedBody.params._meta.apiKey = apiKey;
       }
 
-      console.log('enrichedBody', enrichedBody);
+      
 
       const sessionId = req.query.sessionId as string;
       const compositeKey = `${apiKey}-${sessionId}`;
