@@ -1,0 +1,20 @@
+
+> firecrawl-mcp@1.9.0 test
+> node --experimental-vm-modules node_modules/jest/bin/jest.js
+
+(node:25788) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+PASS src/index.test.ts
+  Firecrawl Tool Tests
+    √ should handle scrape request (4 ms)
+    √ should handle batch scrape request
+    √ should handle search request
+    √ should handle crawl request
+    √ should handle API errors (1 ms)
+    √ should handle rate limits
+
+Test Suites: 1 passed, 1 total
+Tests:       6 passed, 6 total
+Snapshots:   0 total
+Time:        1.913 s, estimated 4 s
+Ran all test suites.
