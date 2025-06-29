@@ -1568,7 +1568,7 @@ async function runSSECloudServer() {
         enrichedBody.params._meta.apiKey = apiKey;
       }
 
-      console.log('enrichedBody', enrichedBody);
+      
 
       const sessionId = req.query.sessionId as string;
       const compositeKey = `${apiKey}-${sessionId}`;
