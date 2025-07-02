@@ -977,10 +977,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     const { name, arguments: args } = request.params;
 
-    const apiKey = process.env.CLOUD_SERVICE
+    const apiKey = process.env.CLOUD_SERVICE==='ture'
       ? (request.params._meta?.apiKey as string)
       : FIRECRAWL_API_KEY;
-    if (process.env.CLOUD_SERVICE && !apiKey) {
+    if (process.env.CLOUD_SERVICE==='ture' && !apiKey) {
       throw new Error('No API key provided');
     }
 
