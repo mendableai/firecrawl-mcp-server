@@ -295,6 +295,7 @@ Use this guide to select the right tool for your task:
 - **If you need complex research across multiple unknown sources:** use **agent**
 - **If you want to analyze a whole site or section:** use **crawl** (with limits!)
 - **If you need interactive browser automation** (click, type, navigate): use **interact** with a URL for a fresh page, or **scrape** + **interact** when you already scraped the page or need tighter scrape control
+- **If you need data from a catalogued provider** (Firecrawl Exchange): search with `sources: [{ "type": "exchange" }]`, read the contract with **exchange discover**, and execute it with **scrape** `exchange`
 
 ### Quick Reference Table
 
@@ -306,6 +307,7 @@ Use this guide to select the right tool for your task:
 | crawl        | Multi-page extraction (with limits)            | final crawl status/data after internal polling |
 | parse        | Files and hosted upload refs                   | markdown, JSON, or document output |
 | search       | Web search for info                            | results[]                      |
+| exchange     | Catalogued data providers (Firecrawl Exchange) | capability hits, contracts, and executed results |
 | developer    | Programming questions over developer sources   | results[] with passages        |
 | agent        | Complex multi-source research                  | JSON (structured data)         |
 | monitor      | Recurring page checks                          | monitor/check metadata and diffs |
@@ -481,6 +483,8 @@ Search the web and optionally extract content from search results.
 ```
 
 Set `highlights` to `true` to request query-relevant highlights or `false` to keep the original search snippets. Omit it to use the API's default behavior.
+
+Add `"sources": [{ "type": "exchange" }]` to include Firecrawl Exchange capability hits in `data.exchange` (`provider`, `capability`, `concept`, `cohorts`, `creditsCost`, `similarity`). They are catalogue entries, not documents, cost nothing, are excluded from `creditsUsed`, and are omitted when the Exchange is unreachable; `sources: [{ "type": "exchange" }]` alone skips the web engine. See [Exchange Tools](#15-exchange-tools).
 
 For scientific papers, see [Research Tools](#12-research-tools-firecrawl_research_): they search paper abstracts and full text, while `categories: ["research"]` here filters ordinary web results to research-affiliated websites.
 
@@ -941,6 +945,42 @@ Search an index built for coding agents. The index covers GitHub issues, merged 
 **Returns:** Ranked results. Each result carries an ID, a source type (`issue`, `pull_request`, `readme`, or `doc`), a URL, a title, and the matched passages in markdown.
 
 `firecrawl_search` with `categories: ["developer"]` searches the same index beside the web results. Use this tool instead when you want the matched passages, the `skills` filter, or no web results in the response. The search-only endpoint exposes both tools, and the same choice applies there.
+
+### 15. Exchange Tools
+
+Firecrawl Exchange is a catalogue of data providers reachable through the Firecrawl API with a Firecrawl API key on a team with Exchange access. Keyless sessions (hosted or local) get `Exchange requires an API key on a team with Exchange access`; `firecrawl_exchange_discover` is not listed for hosted keyless sessions.
+
+**Find capabilities:** `firecrawl_search` with `sources: [{ "type": "exchange" }]` returns capability hits in `data.exchange` (see the search tool above). Hits carry no option schema.
+
+**Read a contract (`firecrawl_exchange_discover`):** walk the catalogue or search it.
+
+```json
+{ "name": "firecrawl_exchange_discover", "arguments": {} }
+{ "name": "firecrawl_exchange_discover", "arguments": { "cohort": "finance", "expand": "all" } }
+{ "name": "firecrawl_exchange_discover", "arguments": { "cohort": "finance", "provider": "fred", "capability": "finance/series/observations" } }
+{ "name": "firecrawl_exchange_discover", "arguments": { "q": "balance sheet", "limit": 8 } }
+```
+
+No arguments lists cohorts; `cohort` lists providers (`expand: "all"` inlines their capabilities); `cohort` + `provider` + `capability` returns the full contract (`options`, `returns`, `creditsCost`, `executable`, `exampleQueries`). `q` (with optional `limit`, 1-24) is accepted on the index route only and returns `capabilities` without contracts; a deployment without a semantic index answers `501 semantic_not_configured`.
+
+**Execute (`firecrawl_scrape` with `exchange`):** pass `exchange` instead of `url` (exactly one of the two; no other scrape option applies).
+
+```json
+{
+  "name": "firecrawl_scrape",
+  "arguments": {
+    "exchange": [
+      {
+        "provider": "fred",
+        "capability": "finance/series/observations",
+        "options": { "series_id": "CPIAUCSL" }
+      }
+    ]
+  }
+}
+```
+
+**Returns:** `{ success, scrape_id, data: { exchange: [...], creditsCost } }`. Each item is either a result (`provider`, `capability`, `creditsCost`, `data`, `records`, `upstreamStatus`) or an `error` with a `code`; the batch never fails as a whole for a provider error and `data.creditsCost` sums the successful items. Exchange error bodies (403 without Exchange access, and the reserved 402/409 billing statuses) are relayed in-band with their `code`.
 
 ## Logging System
 
