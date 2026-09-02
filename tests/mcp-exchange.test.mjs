@@ -137,6 +137,14 @@ async function startFakeExchangeApi(options = {}) {
           error: 'Exchange is not enabled for this team.',
         });
       }
+      if (parsedBody?.exchange?.[0]?.provider === 'inflight') {
+        return json(409, {
+          success: false,
+          code: 'request_in_flight',
+          chargeId: 'chg_0123456789',
+          error: 'A request with this x-request-id is still in flight.',
+        });
+      }
       if (parsedBody?.exchange) {
         return json(200, {
           success: true,
@@ -354,8 +362,18 @@ test('exchange tool metadata: discover is listed, scrape url is optional, langua
   assert.match(scrape.description, /Exchange mode.*data\.creditsCost/is);
 
   const search = byName.get('firecrawl_search');
+  // A source is either a bare name ("exchange") or {type: "exchange"}, so the
+  // acceptance call sources: ['exchange'] passes schema validation.
+  const sourceForms = search.inputSchema.properties.sources.items.anyOf;
+  assert.equal(sourceForms.length, 2);
+  assert.deepEqual(sourceForms.find((form) => form.type === 'string').enum, [
+    'web',
+    'images',
+    'news',
+    'exchange',
+  ]);
   assert.deepEqual(
-    search.inputSchema.properties.sources.items.properties.type.enum,
+    sourceForms.find((form) => form.type === 'object').properties.type.enum,
     ['web', 'images', 'news', 'exchange']
   );
   assert.match(
@@ -406,6 +424,39 @@ test('firecrawl_search forwards the exchange source and passes data.exchange and
   assert.deepEqual(payload.data.exchange, [CAPABILITY_HIT]);
   assert.equal(payload.creditsUsed, 0);
   assert.equal(payload.id, '00000000-0000-4000-8000-000000000000');
+});
+
+test('firecrawl_search forwards bare-string sources verbatim, including the acceptance call sources: ["exchange"]', async (t) => {
+  const { api, client } = await startStdioWithApi(t);
+
+  const cases = [
+    ['exchange'],
+    ['web', 'exchange'],
+    ['news', { type: 'exchange' }],
+  ];
+  for (const sources of cases) {
+    const before = api.requests.length;
+    const result = await client.request('tools/call', {
+      arguments: { query: 'nvidia balance sheet', sources },
+      name: 'firecrawl_search',
+    });
+    assert.equal(api.requests.length, before + 1, JSON.stringify(sources));
+    const request = api.requests[before];
+    assert.equal(request.url, '/v2/search');
+    assert.deepEqual(request.body, {
+      query: 'nvidia balance sheet',
+      sources,
+      origin: 'mcp-fastmcp',
+    });
+    assert.deepEqual(toolText(result).data.exchange, [CAPABILITY_HIT]);
+  }
+
+  const invalid = await callExpectingError(client, {
+    arguments: { query: 'nvidia', sources: ['catalogue'] },
+    name: 'firecrawl_search',
+  });
+  assert.equal(invalid.isError, true);
+  assert.equal(api.requests.length, cases.length);
 });
 
 test('firecrawl_scrape with exchange posts the v2 batch and returns the envelope untouched', async (t) => {
@@ -487,6 +538,29 @@ test('firecrawl_scrape relays an Exchange 403 as an explanatory tool error', asy
   assert.equal(result.structuredContent.code, 'exchange_error');
 });
 
+test('firecrawl_scrape relays a reserved 409 billing error with its code and chargeId', async (t) => {
+  const { api, client } = await startStdioWithApi(t);
+
+  const result = await callExpectingError(client, {
+    arguments: {
+      exchange: [{ provider: 'inflight', capability: 'finance/x' }],
+    },
+    name: 'firecrawl_scrape',
+  });
+  assert.equal(api.requests.length, 1);
+  assert.equal(result.transportError, undefined, 'a 409 must surface in-band');
+  assert.equal(
+    result.content[0].text,
+    'A request with this x-request-id is still in flight.'
+  );
+  assert.deepEqual(result.structuredContent, {
+    code: 'request_in_flight',
+    status: 409,
+    message: 'A request with this x-request-id is still in flight.',
+    chargeId: 'chg_0123456789',
+  });
+});
+
 test('firecrawl_exchange_discover builds every catalogue route and the semantic index route', async (t) => {
   const { api, client } = await startStdioWithApi(t);
 
@@ -522,6 +596,11 @@ test('firecrawl_exchange_discover builds every catalogue route and the semantic 
       '/exchange/discover/web%20data/a%2Fb',
       {},
     ],
+    [
+      { cohort: 'finance', provider: 'fred.v2', capability: 'series/.obs' },
+      '/exchange/discover/finance/fred.v2/series/.obs',
+      {},
+    ],
   ];
 
   for (const [args, expectedPath, expectedQuery] of cases) {
@@ -545,6 +624,49 @@ test('firecrawl_exchange_discover builds every catalogue route and the semantic 
     const payload = toolText(result);
     assert.equal(payload.path, expectedPath);
   }
+});
+
+test('firecrawl_exchange_discover refuses dot segments and expand off the cohort route before any request', async (t) => {
+  const { api, client } = await startStdioWithApi(t);
+
+  const dotted = [
+    { cohort: '..' },
+    { cohort: '.' },
+    { cohort: 'finance', provider: '..' },
+    { cohort: 'finance', provider: 'fred', capability: '../../foo' },
+    { cohort: 'finance', provider: 'fred', capability: 'series/./obs' },
+  ];
+  for (const args of dotted) {
+    const result = await callExpectingError(client, {
+      arguments: args,
+      name: 'firecrawl_exchange_discover',
+    });
+    assert.equal(result.transportError, undefined, JSON.stringify(args));
+    assert.match(result.content[0].text, /"\." and "\.\." are not accepted/);
+  }
+
+  const expandOffCohort = [
+    { expand: 'all' },
+    { cohort: 'finance', provider: 'fred', expand: 'all' },
+    {
+      cohort: 'finance',
+      provider: 'fred',
+      capability: 'finance/series/observations',
+      expand: 'all',
+    },
+  ];
+  for (const args of expandOffCohort) {
+    const result = await callExpectingError(client, {
+      arguments: args,
+      name: 'firecrawl_exchange_discover',
+    });
+    assert.equal(result.transportError, undefined, JSON.stringify(args));
+    assert.match(
+      result.content[0].text,
+      /expand applies on a cohort route only/
+    );
+  }
+  assert.equal(api.requests.length, 0);
 });
 
 test('firecrawl_exchange_discover refuses q off the index route and incomplete walks before any request', async (t) => {

@@ -880,6 +880,14 @@ function buildSearchQueryWithDomains(
 // adds `scrapeOptions` on top; the search surface uses these as-is (strict, no
 // scrapeOptions). Defining the field set once keeps the two surfaces from
 // drifting when a source type, category, or filter changes.
+const searchSourceTypeSchema = z.enum(['web', 'images', 'news', 'exchange']);
+// The API accepts a source as a bare name ("exchange") or as {type: "exchange"};
+// both forms are forwarded verbatim.
+const searchSourceSchema = z.union([
+  searchSourceTypeSchema,
+  z.object({ type: searchSourceTypeSchema }),
+]);
+
 const searchToolBaseFields = {
   query: z.string().min(1),
   highlights: z
@@ -895,10 +903,10 @@ const searchToolBaseFields = {
   includeDomains: z.array(searchDomainSchema).optional(),
   excludeDomains: z.array(searchDomainSchema).optional(),
   sources: z
-    .array(z.object({ type: z.enum(['web', 'images', 'news', 'exchange']) }))
+    .array(searchSourceSchema)
     .optional()
     .describe(
-      'Result groups to return. `exchange` adds Firecrawl Exchange capability hits in `data.exchange` (provider, capability, concept, cohorts, creditsCost, similarity); they are catalogue entries, not documents, cost nothing, and are omitted when the Exchange is unreachable. Exchange needs an API key on a team with Exchange access.'
+      'Result groups to return; each entry is a source name such as "exchange" or an object such as {type: "exchange"}. `exchange` adds Firecrawl Exchange capability hits in `data.exchange` (provider, capability, concept, cohorts, creditsCost, similarity); they are catalogue entries, not documents, cost nothing, and are omitted when the Exchange is unreachable. Exchange needs an API key on a team with Exchange access.'
     ),
   categories: z
     .array(z.enum(['github', 'research', 'pdf', 'developer']))
@@ -1003,6 +1011,18 @@ function assertExchangeCredential(session?: SessionData): void {
   throw new UserError(payload.message, payload);
 }
 
+// Every path segment is a catalogue slug. encodeURIComponent leaves "." and
+// ".." intact, so refuse them outright to keep the request under
+// /exchange/discover.
+function encodeExchangeDiscoverSegment(segment: string): string {
+  if (segment === '.' || segment === '..') {
+    throw new UserError(
+      'cohort, provider, and capability segments must be catalogue slugs; "." and ".." are not accepted.'
+    );
+  }
+  return encodeURIComponent(segment);
+}
+
 function buildExchangeDiscoverPath(args: ExchangeDiscoverArgs): string {
   if (args.q && (args.cohort || args.provider || args.capability)) {
     throw new UserError(
@@ -1018,15 +1038,20 @@ function buildExchangeDiscoverPath(args: ExchangeDiscoverArgs): string {
   if (args.limit !== undefined && !args.q) {
     throw new UserError('limit applies with q only.');
   }
+  if (args.expand && !(args.cohort && !args.provider && !args.capability)) {
+    throw new UserError(
+      'expand applies on a cohort route only: pass cohort without provider or capability.'
+    );
+  }
   const segments = [args.cohort, args.provider]
     .filter((segment): segment is string => Boolean(segment))
-    .map(encodeURIComponent);
+    .map(encodeExchangeDiscoverSegment);
   if (args.capability) {
     segments.push(
       ...args.capability
         .split('/')
         .filter(Boolean)
-        .map(encodeURIComponent)
+        .map(encodeExchangeDiscoverSegment)
     );
   }
   const params = new URLSearchParams();
@@ -1037,10 +1062,10 @@ function buildExchangeDiscoverPath(args: ExchangeDiscoverArgs): string {
   return `/exchange/discover${segments.length ? `/${segments.join('/')}` : ''}${query ? `?${query}` : ''}`;
 }
 
-// Exchange errors arrive as {success:false, error, code?} with the upstream
-// status (403 without the team flag, 402/409 once billing lands, 5xx when the
-// Exchange is unreachable). Relay the message and code so the agent can act on
-// them; a 401 is left to the credential recovery path.
+// Exchange errors arrive as {success:false, error, code?, chargeId?} with the
+// upstream status (403 without the team flag, 402/409 once billing lands, 5xx
+// when the Exchange is unreachable). Relay the message, code, and any chargeId
+// so the agent can act on them; a 401 is left to the credential recovery path.
 async function relayExchangeError(run: () => Promise<any>): Promise<any> {
   try {
     return await run();
@@ -1050,7 +1075,7 @@ async function relayExchangeError(run: () => Promise<any>): Promise<any> {
     )?.response;
     if (!response || response.status === 401) throw error;
     const data = response.data as
-      | { error?: unknown; code?: unknown }
+      | { error?: unknown; code?: unknown; chargeId?: unknown }
       | undefined;
     const message =
       typeof data?.error === 'string'
@@ -1060,6 +1085,9 @@ async function relayExchangeError(run: () => Promise<any>): Promise<any> {
       code: typeof data?.code === 'string' ? data.code : 'exchange_error',
       status: response.status,
       message,
+      ...(typeof data?.chargeId === 'string'
+        ? { chargeId: data.chargeId }
+        : {}),
     });
   }
 }
@@ -3478,7 +3506,7 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
         tbs?: string;
         filter?: string;
         location?: string;
-        sources?: Array<{ type: string }>;
+        sources?: Array<string | { type: string }>;
         categories?: string[];
         highlights?: boolean;
         enterprise?: string[];
