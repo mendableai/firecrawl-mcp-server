@@ -13,7 +13,7 @@ const KEYLESS_TOOL_MESSAGE =
 
 const CAPABILITY_HIT = {
   provider: 'fred',
-  capability: 'finance/series/observations',
+  capability: 'series/observations',
   concept: 'series/observations',
   cohorts: ['finance'],
   creditsCost: 1,
@@ -22,7 +22,7 @@ const CAPABILITY_HIT = {
 
 const EXCHANGE_CALL = {
   provider: 'fred',
-  capability: 'finance/series/observations',
+  capability: 'series/observations',
   options: { series_id: 'CPIAUCSL' },
 };
 
@@ -153,7 +153,7 @@ async function startFakeExchangeApi(options = {}) {
             exchange: [
               {
                 provider: 'fred',
-                capability: 'finance/series/observations',
+                capability: 'series/observations',
                 creditsCost: 1,
                 data: {
                   observations: [{ date: '2026-01-01', value: '320.1' }],
@@ -163,7 +163,7 @@ async function startFakeExchangeApi(options = {}) {
               },
               {
                 provider: 'fred',
-                capability: 'finance/series/missing',
+                capability: 'series/missing',
                 error: {
                   code: 'capability_not_found',
                   message: 'Unknown capability',
@@ -466,7 +466,7 @@ test('firecrawl_scrape with exchange posts the v2 batch and returns the envelope
     arguments: {
       exchange: [
         EXCHANGE_CALL,
-        { provider: 'fred', capability: 'finance/series/missing' },
+        { provider: 'fred', capability: 'series/missing' },
       ],
     },
     name: 'firecrawl_scrape',
@@ -482,7 +482,7 @@ test('firecrawl_scrape with exchange posts the v2 batch and returns the envelope
   assert.deepEqual(api.requests[0].body, {
     exchange: [
       EXCHANGE_CALL,
-      { provider: 'fred', capability: 'finance/series/missing' },
+      { provider: 'fred', capability: 'series/missing' },
     ],
     origin: 'mcp-fastmcp',
   });
@@ -586,9 +586,9 @@ test('firecrawl_exchange_discover builds every catalogue route and the semantic 
       {
         cohort: 'finance',
         provider: 'fred',
-        capability: 'finance/series/observations',
+        capability: 'series/observations',
       },
-      '/exchange/discover/finance/fred/finance/series/observations',
+      '/exchange/discover/finance/fred/series/observations',
       {},
     ],
     [
@@ -651,7 +651,7 @@ test('firecrawl_exchange_discover refuses dot segments and expand off the cohort
     {
       cohort: 'finance',
       provider: 'fred',
-      capability: 'finance/series/observations',
+      capability: 'series/observations',
       expand: 'all',
     },
   ];
@@ -676,8 +676,8 @@ test('firecrawl_exchange_discover refuses q off the index route and incomplete w
     { q: 'balance sheet', cohort: 'finance' },
     { q: 'balance sheet', cohort: 'finance', provider: 'fred' },
     { provider: 'fred' },
-    { capability: 'finance/series/observations' },
-    { cohort: 'finance', capability: 'finance/series/observations' },
+    { capability: 'series/observations' },
+    { cohort: 'finance', capability: 'series/observations' },
     { limit: 3 },
     { q: 'balance sheet', limit: 0 },
     { q: 'balance sheet', limit: 25 },

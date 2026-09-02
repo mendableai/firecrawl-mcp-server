@@ -942,7 +942,7 @@ const exchangeCallSchema = z.object({
     .string()
     .min(1)
     .describe(
-      'Capability address as returned by search or discover, e.g. "finance/series/observations".'
+      'Capability address as returned by search or discover, e.g. "series/observations".'
     ),
   options: z
     .record(z.string(), z.any())
@@ -966,7 +966,7 @@ const exchangeDiscoverParamsSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      'Capability address within the provider, e.g. "finance/series/observations". Requires cohort and provider; returns the full contract.'
+      'Capability address within the provider, e.g. "series/observations". Requires cohort and provider; returns the full contract.'
     ),
   q: z
     .string()

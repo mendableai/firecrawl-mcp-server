@@ -957,7 +957,7 @@ Firecrawl Exchange is a catalogue of data providers reachable through the Firecr
 ```json
 { "name": "firecrawl_exchange_discover", "arguments": {} }
 { "name": "firecrawl_exchange_discover", "arguments": { "cohort": "finance", "expand": "all" } }
-{ "name": "firecrawl_exchange_discover", "arguments": { "cohort": "finance", "provider": "fred", "capability": "finance/series/observations" } }
+{ "name": "firecrawl_exchange_discover", "arguments": { "cohort": "finance", "provider": "fred", "capability": "series/observations" } }
 { "name": "firecrawl_exchange_discover", "arguments": { "q": "balance sheet", "limit": 8 } }
 ```
 
@@ -972,7 +972,7 @@ No arguments lists cohorts; `cohort` lists providers (`expand: "all"` inlines th
     "exchange": [
       {
         "provider": "fred",
-        "capability": "finance/series/observations",
+        "capability": "series/observations",
         "options": { "series_id": "CPIAUCSL" }
       }
     ]
