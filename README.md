@@ -160,6 +160,14 @@ To install Firecrawl for Claude Desktop automatically via [Smithery](https://smi
 npx -y @smithery/cli install @mendableai/mcp-server-firecrawl --client claude
 ```
 
+### Running on Gamut
+
+Connect Firecrawl to a [Gamut](https://www.gamut.so/mcp/developer-tools/firecrawl) agent:
+
+1. In your Gamut agent, go to **Connections** and click **Add Connection**.
+2. Search for **Firecrawl** and click **+** to add it.
+3. Authenticate with your Firecrawl account when prompted.
+
 ### Running on VS Code
 
 For one-click installation, click one of the install buttons below...
