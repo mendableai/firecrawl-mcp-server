@@ -154,6 +154,24 @@ Add this to your `./codeium/windsurf/model_config.json`:
 }
 ```
 
+### Running on Codex CLI
+
+Run this command:
+
+```bash
+# replace with actual firecrawl api key
+codex mcp add firecrawl --env FIRECRAWL_API_KEY=fc-YOUR_API_KEY-- npx -y firecrawl-mcp
+```
+
+Or add this lines to your Codex configuration (by default, in `~/.codex/codex.toml`) to register the Firecrawl MCP server:
+
+```toml
+[mcp_servers.firecrawl]
+command = "npx"
+args = ["-y", "firecrawl-mcp"]
+env = {"FIRECRAWL_API_KEY" = "fc-YOUR_API_KEY"}
+```
+
 ### Running with Streamable HTTP Local Mode
 
 To run the server using Streamable HTTP locally instead of the default stdio transport:
