@@ -124,6 +124,16 @@ Replace `your-api-key` with your Firecrawl API key. If you don't have one yet, y
 
 After adding, refresh the MCP server list to see the new tools. The Composer Agent will automatically use Firecrawl MCP when appropriate, but you can explicitly request it by describing your web scraping needs. Access the Composer via Command+L (Mac), select "Agent" next to the submit button, and enter your query.
 
+### Running on FLUJO
+
+To connect [FLUJO](https://github.com/mario-andreschak/FLUJO) to the hosted MCP server:
+
+1. Open **Connected Apps** → **Connect App** → **I have connection details** → **At a remote URL**.
+2. Enter `https://mcp.firecrawl.dev/v2/mcp`, then select **Connect**.
+3. After the connection test passes, select **Update server**.
+
+The keyless free tier supports rate-limited `scrape`, `search`, and `parse`. Other tools require authentication as described in [Hosted MCP](#hosted-mcp-keyless-free-tier).
+
 ### Running on Windsurf
 
 Add this to your `./codeium/windsurf/model_config.json`:
