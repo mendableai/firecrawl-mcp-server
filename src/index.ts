@@ -1628,6 +1628,17 @@ function transformScrapeParams(
   return out;
 }
 
+// Keep the existing service-side prompt cap without serializing maxLength into
+// MCP JSON Schema. llama.cpp expands maxLength into a bounded GBNF repetition,
+// while FastMCP still runs this Zod refinement before every tool handler.
+const RUNTIME_MAX_PROMPT_LENGTH = 10_000;
+const runtimePromptSchema = z.string().refine(
+  (value) => value.length <= RUNTIME_MAX_PROMPT_LENGTH,
+  {
+    message: `Prompt must contain at most ${RUNTIME_MAX_PROMPT_LENGTH} characters.`,
+  }
+);
+
 const scrapeParamsSchema = z.object({
   url: z.string().url(),
   formats: z
@@ -1655,7 +1666,7 @@ const scrapeParamsSchema = z.object({
     .optional(),
   queryOptions: z
     .object({
-      prompt: z.string().max(10000),
+      prompt: runtimePromptSchema,
       mode: z.enum(['directQuote', 'freeform']).default('freeform'),
     })
     .optional(),
@@ -1739,7 +1750,7 @@ const parseOptionParamsSchema = z.object({
     .optional(),
   queryOptions: z
     .object({
-      prompt: z.string().max(10000),
+      prompt: runtimePromptSchema,
       mode: z.enum(['directQuote', 'freeform']).default('freeform'),
     })
     .optional(),
@@ -2939,7 +2950,7 @@ Run web research that returns structured data when the URLs are not known or the
 This call returns only a job ID, not the research result. Read the job with \`firecrawl_agent_status\` until it reaches \`completed\` or \`failed\`; a typical research run takes one to three minutes. For one known URL use \`firecrawl_scrape\` (with formats: ["json"] for structured output); for a plain lookup that a results page answers, use \`firecrawl_search\`.
 `,
   parameters: z.object({
-    prompt: z.string().min(1).max(10000),
+    prompt: runtimePromptSchema.min(1),
     urls: z.array(z.string().url()).optional(),
     schema: z.record(z.string(), z.any()).optional(),
   }),

@@ -212,6 +212,67 @@ async function startFakeFirecrawlApi() {
       return;
     }
 
+    if (req.method === 'POST' && req.url === '/v2/scrape') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          data: {
+            markdown: '# Example',
+            metadata: { scrapeId: 'scrape-001' },
+          },
+          success: true,
+        })
+      );
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/v2/crawl') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          id: 'crawl-001',
+          success: true,
+          url: 'https://example.com/',
+        })
+      );
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/v2/crawl/crawl-001') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          data: [],
+          status: 'completed',
+          success: true,
+        })
+      );
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/v2/scrape/scrape-001/interact') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ output: 'interacted', success: true }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/v2/agent') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ id: 'agent-001', success: true }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/v2/parse') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          data: { markdown: '# Parsed fixture' },
+          success: true,
+        })
+      );
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/v2/monitor') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
@@ -761,6 +822,215 @@ test('HTTP cloud transport rejects invalid search limits before calling Firecraw
     (request) => request.url === '/v2/search'
   ).length;
   assert.equal(searchRequestsAfter, searchRequestsBefore);
+});
+
+test('MCP keeps 10,000-character prompts as runtime validation without maxLength grammar bounds', async (t) => {
+  const fakeApi = await startFakeFirecrawlApi();
+  t.after(() => fakeApi.close());
+
+  const port = await getFreePort();
+  const child = spawnServer({
+    CLOUD_SERVICE: 'true',
+    FASTMCP_ENDPOINT: '/v2/mcp',
+    FIRECRAWL_API_URL: fakeApi.url,
+    FIRECRAWL_OAUTH_ISSUER: fakeApi.url,
+    FIRECRAWL_OAUTH_INTROSPECT_SECRET: 'test-secret',
+    HTTP_STREAMABLE_SERVER: 'true',
+    PORT: String(port),
+  });
+  t.after(() => stopChild(child));
+  await waitForHealth(port, child);
+
+  const listResponse = await fetch(`http://127.0.0.1:${port}/v2/mcp`, {
+    body: JSON.stringify({ id: 500, jsonrpc: '2.0', method: 'tools/list', params: {} }),
+    headers: {
+      accept: 'application/json, text/event-stream',
+      'content-type': 'application/json',
+      'x-api-key': 'fc-test',
+    },
+    method: 'POST',
+  });
+  assert.equal(listResponse.status, 200);
+  const tools = parseSseJson(await listResponse.text()).result.tools;
+  const byName = new Map(tools.map((tool) => [tool.name, tool]));
+  const promptSchemas = [
+    [
+      'firecrawl_scrape.queryOptions.prompt',
+      byName.get('firecrawl_scrape').inputSchema.properties.queryOptions
+        .properties.prompt,
+    ],
+    [
+      'firecrawl_search.scrapeOptions.queryOptions.prompt',
+      byName.get('firecrawl_search').inputSchema.properties.scrapeOptions
+        .properties.queryOptions.properties.prompt,
+    ],
+    [
+      'firecrawl_crawl.scrapeOptions.queryOptions.prompt',
+      byName.get('firecrawl_crawl').inputSchema.properties.scrapeOptions
+        .properties.queryOptions.properties.prompt,
+    ],
+    [
+      'firecrawl_interact.scrapeOptions.queryOptions.prompt',
+      byName.get('firecrawl_interact').inputSchema.properties.scrapeOptions
+        .properties.queryOptions.properties.prompt,
+    ],
+    [
+      'firecrawl_parse.queryOptions.prompt',
+      byName.get('firecrawl_parse').inputSchema.properties.queryOptions
+        .properties.prompt,
+    ],
+    [
+      'firecrawl_agent.prompt',
+      byName.get('firecrawl_agent').inputSchema.properties.prompt,
+    ],
+  ];
+  for (const [pathName, promptSchema] of promptSchemas) {
+    assert.equal('maxLength' in promptSchema, false, pathName);
+  }
+  assert.equal(
+    byName.get('firecrawl_agent').inputSchema.properties.prompt.minLength,
+    1
+  );
+
+  const atLimit = 'x'.repeat(10_000);
+  const overLimit = 'x'.repeat(10_001);
+  const promptCases = (prompt) => [
+    {
+      arguments: {
+        formats: ['query'],
+        queryOptions: { prompt },
+        url: 'https://example.com/',
+      },
+      name: 'firecrawl_scrape',
+    },
+    {
+      arguments: {
+        query: 'prompt boundary',
+        scrapeOptions: { formats: ['query'], queryOptions: { prompt } },
+      },
+      name: 'firecrawl_search',
+    },
+    {
+      arguments: {
+        scrapeOptions: { formats: ['query'], queryOptions: { prompt } },
+        url: 'https://example.com/',
+      },
+      name: 'firecrawl_crawl',
+    },
+    {
+      arguments: {
+        prompt: 'Read the page title.',
+        scrapeOptions: { formats: ['query'], queryOptions: { prompt } },
+        url: 'https://example.com/',
+      },
+      name: 'firecrawl_interact',
+    },
+    {
+      arguments: {
+        formats: ['query'],
+        queryOptions: { prompt },
+        uploadRef: 'test-upload-ref',
+      },
+      name: 'firecrawl_parse',
+    },
+    {
+      arguments: { prompt },
+      name: 'firecrawl_agent',
+    },
+  ];
+  const callTool = async (id, params) => {
+    const response = await httpToolCall(port, {
+      id,
+      headers: { 'x-api-key': 'fc-test' },
+      params,
+    });
+    assert.equal(response.status, 200, params.name);
+    return parseSseJson(await response.text());
+  };
+
+  const requestsBeforeAcceptance = fakeApi.requests.length;
+  for (const [index, params] of promptCases(atLimit).entries()) {
+    const message = await callTool(510 + index, params);
+    assert.equal(message.error, undefined, JSON.stringify(message));
+    assert.notEqual(message.result?.isError, true, JSON.stringify(message));
+  }
+  const acceptedRequests = fakeApi.requests.slice(requestsBeforeAcceptance);
+  const requestFor = (method, url) => {
+    const matches = acceptedRequests.filter(
+      (request) => request.method === method && request.url === url
+    );
+    assert.equal(matches.length, 1, `accepted prompt should reach ${method} ${url}`);
+    return matches[0];
+  };
+  const queryPrompt = (options) =>
+    options?.queryOptions?.prompt ??
+    options?.formats?.find((format) => format?.type === 'query')?.prompt;
+
+  const directScrape = acceptedRequests.find(
+    (request) =>
+      request.method === 'POST' &&
+      request.url === '/v2/scrape' &&
+      Array.isArray(request.body?.formats) &&
+      request.body.formats.some((format) => format?.type === 'query')
+  );
+  assert.ok(directScrape, 'accepted scrape should reach the fake backend');
+  assert.equal(queryPrompt(directScrape.body), atLimit);
+
+  const search = requestFor('POST', '/v2/search');
+  assert.equal(queryPrompt(search.body?.scrapeOptions), atLimit);
+
+  const crawl = requestFor('POST', '/v2/crawl');
+  assert.equal(queryPrompt(crawl.body?.scrapeOptions), atLimit);
+
+  const interactOpeningScrape = acceptedRequests.find(
+    (request) =>
+      request.method === 'POST' &&
+      request.url === '/v2/scrape' &&
+      request.body?.queryOptions?.prompt === atLimit
+  );
+  assert.ok(interactOpeningScrape, 'interact should preserve its scrapeOptions prompt');
+  assert.equal(interactOpeningScrape.body.queryOptions.prompt, atLimit);
+
+  const interact = requestFor('POST', '/v2/scrape/scrape-001/interact');
+  assert.equal(interact.body?.prompt, 'Read the page title.');
+
+  const parse = requestFor('POST', '/v2/parse');
+  assert.equal(queryPrompt(parse.body), atLimit);
+
+  const agent = requestFor('POST', '/v2/agent');
+  assert.equal(agent.body?.prompt, atLimit);
+
+  const requestsBeforeRejection = fakeApi.requests.length;
+  for (const [index, params] of promptCases(overLimit).entries()) {
+    const message = await callTool(520 + index, params);
+    assert.equal(message.result, undefined, JSON.stringify(message));
+    assert.equal(message.error?.code, -32602, JSON.stringify(message));
+    const expectedPath =
+      params.name === 'firecrawl_agent'
+        ? 'prompt'
+        : params.name === 'firecrawl_scrape' || params.name === 'firecrawl_parse'
+          ? 'queryOptions.prompt'
+          : 'scrapeOptions.queryOptions.prompt';
+    assert.ok(
+      message.error?.message.includes(
+        `Tool '${params.name}' parameter validation failed: ${expectedPath}: Prompt must contain at most 10000 characters.`
+      ),
+      JSON.stringify(message)
+    );
+  }
+  const emptyAgent = await callTool(526, {
+    arguments: { prompt: '' },
+    name: 'firecrawl_agent',
+  });
+  assert.equal(emptyAgent.result, undefined, JSON.stringify(emptyAgent));
+  assert.equal(emptyAgent.error?.code, -32602, JSON.stringify(emptyAgent));
+  assert.ok(
+    emptyAgent.error?.message.includes(
+      "Tool 'firecrawl_agent' parameter validation failed: prompt: Too small: expected string to have >=1 characters."
+    ),
+    JSON.stringify(emptyAgent)
+  );
+  assert.equal(fakeApi.requests.length, requestsBeforeRejection);
 });
 
 class StdioMcpClient {
