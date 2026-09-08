@@ -366,21 +366,19 @@ Scrape content from a single URL with advanced options.
   "name": "firecrawl_scrape",
   "arguments": {
     "url": "https://example.com/product",
-    "formats": [
-      {
-        "type": "json",
-        "prompt": "Extract the product information",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "name": { "type": "string" },
-            "price": { "type": "number" },
-            "description": { "type": "string" }
-          },
-          "required": ["name", "price"]
-        }
+    "formats": ["json"],
+    "jsonOptions": {
+      "prompt": "Extract the product information",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "price": { "type": "number" },
+          "description": { "type": "string" }
+        },
+        "required": ["name", "price"]
       }
-    ]
+    }
   }
 }
 ```
