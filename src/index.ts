@@ -9,6 +9,11 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { z } from 'zod';
 import { registerDeveloperTools } from './developer';
+import {
+  mcpJsonObjectOptional,
+  mcpJsonSchemaDocumentOptional,
+  mcpStringMapOptional,
+} from './mcp-json-schemas';
 import { extractSingleTrustedClientIp } from './keyless-client-ip';
 import { registerMonitorTools } from './monitor';
 import { registerResearchTools } from './research';
@@ -1650,7 +1655,7 @@ const scrapeParamsSchema = z.object({
   jsonOptions: z
     .object({
       prompt: z.string().optional(),
-      schema: z.record(z.string(), z.any()).optional(),
+      schema: mcpJsonSchemaDocumentOptional,
     })
     .optional(),
   queryOptions: z
@@ -1734,7 +1739,7 @@ const parseOptionParamsSchema = z.object({
   jsonOptions: z
     .object({
       prompt: z.string().optional(),
-      schema: z.record(z.string(), z.any()).optional(),
+      schema: mcpJsonSchemaDocumentOptional,
     })
     .optional(),
   queryOptions: z
@@ -2683,7 +2688,7 @@ Returns submission status, feedback ID, and accounting fields.
       querySuggestions: z.string().max(2000).optional(),
       url: z.string().url().optional(),
       pageNumbers: z.array(z.number().int().positive()).max(100).optional(),
-      metadata: z.record(z.string(), z.unknown()).optional(),
+      metadata: mcpJsonObjectOptional,
     }),
     execute: async (args: unknown, { session, log }): Promise<string> => {
       const {
@@ -2815,7 +2820,7 @@ Crawl results can be large; use conservative limits when full-site coverage is u
       ? {}
       : {
           webhook: z.string().optional(),
-          webhookHeaders: z.record(z.string(), z.string()).optional(),
+          webhookHeaders: mcpStringMapOptional,
         }),
     deduplicateSimilarURLs: z.boolean().optional(),
     ignoreQueryParameters: z.boolean().optional(),
@@ -2905,7 +2910,7 @@ Deprecated compatibility entry point. Use firecrawl_scrape once per known URL wi
   parameters: z.object({
     urls: z.array(z.string()),
     prompt: z.string().optional(),
-    schema: z.record(z.string(), z.any()).optional(),
+    schema: mcpJsonSchemaDocumentOptional,
     allowExternalLinks: z.boolean().optional(),
     enableWebSearch: z.boolean().optional(),
     includeSubdomains: z.boolean().optional(),
@@ -2941,7 +2946,7 @@ This call returns only a job ID, not the research result. Read the job with \`fi
   parameters: z.object({
     prompt: z.string().min(1).max(10000),
     urls: z.array(z.string().url()).optional(),
-    schema: z.record(z.string(), z.any()).optional(),
+    schema: mcpJsonSchemaDocumentOptional,
   }),
   execute: async (args: unknown, { session, log }): Promise<string> => {
     const client = getClient(session);

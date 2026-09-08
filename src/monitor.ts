@@ -11,6 +11,7 @@
 
 import { z } from 'zod';
 import type { FastMCP } from 'fastmcp';
+import { mcpJsonObject, mcpJsonObjectOptional } from './mcp-json-schemas';
 import {
   CoreHttpError,
   credentialForOutboundRequest,
@@ -230,7 +231,7 @@ Create a recurring scrape, crawl, or search monitor that compares each check wit
 In the simple form, a \`goal\` is required. If \`queries\` contains one or more non-empty values and is supplied with \`page\`/\`pages\`, \`queries\` create the search target and page targets are ignored. A monitor schedules future network checks and can send configured email or webhook notifications. Returns the created monitor.
 `,
     parameters: z.object({
-      body: z.record(z.string(), z.any()).optional(),
+      body: mcpJsonObjectOptional,
       page: z.string().optional(),
       pages: z.array(z.string()).optional(),
       queries: z.array(z.string()).optional(),
@@ -318,7 +319,7 @@ Returns the updated monitor.
 `,
     parameters: z.object({
       id: z.string(),
-      body: z.record(z.string(), z.any()),
+      body: mcpJsonObject,
     }),
     execute: async (args: unknown, { session }): Promise<string> => {
       const { id, body } = args as {
