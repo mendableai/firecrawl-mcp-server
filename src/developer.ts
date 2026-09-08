@@ -92,6 +92,14 @@ For a developer question — code behaviour, a library or framework, an API cont
 
 Returns ranked results with an ID, source type, URL, title, and the matched passages in markdown.
 `,
+    // Frozen argument surface: query, k, skills. GET /v2/search/developer also
+    // documents types, repos, sources, passages, language, topic, license,
+    // min_stars, max_stars, archived, and fork. Those stay HTTP-only. Widening
+    // this list is a contract change and must update
+    // tests/developer-search-contract.test.mjs.
+    //
+    // Property `.describe()` text does not survive tools/list serialization.
+    // Anything an agent has to read belongs in the tool description above.
     parameters: z.object({
       query: z
         .string()

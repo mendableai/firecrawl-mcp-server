@@ -949,7 +949,9 @@ Search an index built for coding agents. The index covers GitHub issues, merged 
 - `k`: number of ranked results. The default is 10 and the maximum is 100.
 - `skills`: set to `"only"` to search agent-skill files alone.
 
-**Returns:** Ranked results. Each result carries an ID, a source type (`issue`, `pull_request`, `readme`, or `doc`), a URL, a title, and the matched passages in markdown.
+This tool accepts only those three arguments. Filters on `GET /v2/search/developer` such as `types`, `repos`, `sources`, `passages`, and repository attribute filters are HTTP-only and are not MCP arguments.
+
+**Returns:** Ranked results as markdown. Each result carries an ID, a source type (`issue`, `pull_request`, `readme`, or `doc`), a URL, a title, and the matched passages.
 
 `firecrawl_search` with `categories: ["developer"]` searches the same index beside the web results. Use this tool instead when you want the matched passages, the `skills` filter, or no web results in the response. The search-only endpoint exposes both tools, and the same choice applies there.
 
