@@ -459,9 +459,12 @@ test('search firecrawl_search sends a clean body built from allowed fields only'
     method: 'tools/call',
     params: {
       arguments: {
+        country: 'DE',
+        ignoreInvalidURLs: true,
         query: 'example domain',
         limit: 1,
         sources: [{ type: 'web' }],
+        timeout: 30000,
       },
       name: 'firecrawl_search',
     },
@@ -482,6 +485,9 @@ test('search firecrawl_search sends a clean body built from allowed fields only'
     'tbs',
     'filter',
     'location',
+    'country',
+    'timeout',
+    'ignoreInvalidURLs',
     'sources',
     'categories',
     'highlights',
@@ -492,9 +498,12 @@ test('search firecrawl_search sends a clean body built from allowed fields only'
     assert.equal(allowedKeys.has(key), true, `unexpected outbound field: ${key}`);
   }
   assert.deepEqual(sentBody, {
+    country: 'DE',
+    ignoreInvalidURLs: true,
     query: 'example domain',
     limit: 1,
     sources: [{ type: 'web' }],
+    timeout: 30000,
     origin: 'mcp-fastmcp',
   });
 });

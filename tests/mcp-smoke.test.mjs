@@ -634,6 +634,9 @@ test('HTTP cloud keyless transport preserves app challenge without advertising O
   assert.equal(searchTool.inputSchema.properties.limit.type, 'integer');
   assert.equal(searchTool.inputSchema.properties.limit.minimum, 1);
   assert.equal(searchTool.inputSchema.properties.limit.maximum, 100);
+  assert.equal(searchTool.inputSchema.properties.country.type, 'string');
+  assert.equal(searchTool.inputSchema.properties.timeout.type, 'integer');
+  assert.equal(searchTool.inputSchema.properties.ignoreInvalidURLs.type, 'boolean');
 
   assert.equal(
     backend.requests.filter((request) => request.url === '/api/oauth/introspect').length,
@@ -671,7 +674,14 @@ test('HTTP cloud transport calls Firecrawl API with authenticated session', asyn
       jsonrpc: '2.0',
       method: 'tools/call',
       params: {
-        arguments: { highlights: false, limit: 1, query: 'example domain' },
+        arguments: {
+          country: 'DE',
+          highlights: false,
+          ignoreInvalidURLs: true,
+          limit: 1,
+          query: 'example domain',
+          timeout: 30000,
+        },
         name: 'firecrawl_search',
       },
     }),
@@ -707,10 +717,13 @@ test('HTTP cloud transport calls Firecrawl API with authenticated session', asyn
   assert.equal(searchRequest.method, 'POST');
   assert.equal(searchRequest.headers.authorization, 'Bearer fc-http-test');
   assert.deepEqual(searchRequest.body, {
+    country: 'DE',
     highlights: false,
+    ignoreInvalidURLs: true,
     limit: 1,
     origin: 'mcp-fastmcp',
     query: 'example domain',
+    timeout: 30000,
   });
   assert.equal(
     fakeApi.requests.filter((request) => request.url === '/api/oauth/introspect').length,

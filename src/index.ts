@@ -12,6 +12,7 @@ import { registerDeveloperTools } from './developer';
 import { extractSingleTrustedClientIp } from './keyless-client-ip';
 import { registerMonitorTools } from './monitor';
 import { registerResearchTools } from './research';
+import { postSearch } from './search-http-options';
 import { escapeWWWAuthenticateValue } from './www-authenticate';
 import {
   credentialForOutboundRequest,
@@ -892,6 +893,24 @@ const searchToolBaseFields = {
   tbs: z.string().optional(),
   filter: z.string().optional(),
   location: z.string().optional(),
+  country: z
+    .string()
+    .optional()
+    .describe(
+      'ISO country code for geo-targeting search results (for example, `US` or `DE`). For best results, set `location` as well.'
+    ),
+  timeout: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Server-side search timeout in milliseconds.'),
+  ignoreInvalidURLs: z
+    .boolean()
+    .optional()
+    .describe(
+      'Exclude URLs that are invalid for other Firecrawl endpoints, which is useful when feeding search results into another tool.'
+    ),
   includeDomains: z.array(searchDomainSchema).optional(),
   excludeDomains: z.array(searchDomainSchema).optional(),
   sources: z
@@ -2252,7 +2271,7 @@ Each web result is a title, URL, and description, not the page. Add \`scrapeOpti
     // high-level `search()` helper strips `id` and `creditsUsed`, which
     // supports the optional authenticated `firecrawl_search_feedback` workflow.
     const client = getClient(session);
-    const httpRes = await (client as any).http.post('/v2/search', searchBody);
+    const httpRes = await postSearch((client as any).http, searchBody);
     return asText(httpRes?.data ?? {});
   },
 });
@@ -3246,6 +3265,9 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
         tbs,
         filter,
         location,
+        country,
+        timeout,
+        ignoreInvalidURLs,
         sources,
         categories,
         highlights,
@@ -3258,6 +3280,9 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
         tbs?: string;
         filter?: string;
         location?: string;
+        country?: string;
+        timeout?: number;
+        ignoreInvalidURLs?: boolean;
         sources?: Array<{ type: string }>;
         categories?: string[];
         highlights?: boolean;
@@ -3279,6 +3304,9 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
           tbs,
           filter,
           location,
+          country,
+          timeout,
+          ignoreInvalidURLs,
           sources,
           categories,
           highlights,
@@ -3289,7 +3317,7 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
 
       log.info('Searching', { query: searchQuery });
       const client = getClientFn(session);
-      const httpRes = await (client as any).http.post('/v2/search', searchBody);
+      const httpRes = await postSearch((client as any).http, searchBody);
       return asText(httpRes?.data ?? {});
     },
   });

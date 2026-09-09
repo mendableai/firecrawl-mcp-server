@@ -43,8 +43,9 @@ same index beside ordinary web results. Both are available here.
 The search surface's `firecrawl_search` takes **no `scrapeOptions`**. Its input
 schema is strict (unknown fields are rejected), and its executor builds the
 outbound `/v2/search` body from an explicit list of allowed fields
-(`query`, `limit`, `tbs`, `filter`, `location`, `sources`, `categories`,
-`highlights`, `enterprise`) plus `origin`. It never spreads raw arguments, so
+(`query`, `limit`, `tbs`, `filter`, `location`, `country`, `sources`,
+`categories`, `timeout`, `ignoreInvalidURLs`, `highlights`, `enterprise`) plus
+`origin`. It never spreads raw arguments, so
 no request from this surface can ask the API to fetch third-party page content.
 The schema and body construction enforce this directly, and contract tests guard
 the behavior. No runtime filter is involved.
