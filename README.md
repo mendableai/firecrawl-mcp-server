@@ -47,6 +47,12 @@ Connect to the remote hosted server with no setup:
 https://mcp.firecrawl.dev/v2/mcp
 ```
 
+Install this endpoint as an [Agent Plugins 1.0](https://agent-plugins.org/specification) package across supported clients:
+
+```bash
+npx universal-agent-plugins add firecrawl
+```
+
 On the keyless free tier, `scrape`, `search`, and `parse` work without an API key (rate-limited). Other tools such as `crawl`, `map`, and `agent` still need a key.
 
 Prefer OAuth or an API key whenever the human can sign up. It unlocks the full tool set and higher limits.

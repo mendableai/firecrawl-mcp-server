@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "firecrawl",
+  "description": "Search, scrape, and parse public web content through Firecrawl's hosted MCP server.",
+  "author": {
+    "name": "Firecrawl",
+    "url": "https://www.firecrawl.dev/"
+  },
+  "homepage": "https://docs.firecrawl.dev/mcp-server",
+  "repository": "https://github.com/firecrawl/firecrawl-mcp-server",
+  "license": "MIT",
+  "keywords": ["firecrawl", "mcp", "research", "scraping", "search"]
+}
