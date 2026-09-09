@@ -527,13 +527,16 @@ test('search firecrawl_search forwards the developer category in the web group',
   assert.equal(searchCalls.length, 1);
   assert.deepEqual(searchCalls[0].body.categories, ['developer']);
 
-  // The tool returns the API envelope unchanged, so the developer-tagged web
-  // result must survive into the tool result without a legacy developer group.
+  // The developer-tagged web result must survive into the tool result without
+  // a legacy developer group. The tool adds only the (source, position)
+  // coordinates every result now carries for search feedback.
   const envelope = JSON.parse(message.result.content[0].text);
   assert.deepEqual(envelope.data.web, [
     {
       category: 'developer',
       description: 'The matched passage.',
+      position: 1,
+      source: 'web',
       title: 'Fix the retry loop',
       url: 'https://github.com/firecrawl/firecrawl/issues/1',
     },

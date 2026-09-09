@@ -512,7 +512,7 @@ Sends structured feedback on a previous `firecrawl_search` result. The first fee
 
 **Opt out:** set `FIRECRAWL_NO_SEARCH_FEEDBACK=1` (or `FIRECRAWL_DISABLE_SEARCH_FEEDBACK=1`) in the environment when starting the MCP server. The `firecrawl_search_feedback` tool will not be registered, so agents can't call it. Team admins can also disable feedback server-side; in that case the tool is registered but always returns `feedbackErrorCode: "TEAM_OPTED_OUT"`.
 
-**Most important field:** `missingContent`. It's an array of specific pieces of content the agent expected to find but did not. One entry per missing topic — these aggregate across teams and tell us what to index next.
+**Most important field:** `missingContent`. It's an array of specific pieces of content the agent expected to find but did not. One entry per missing topic — these aggregate across teams and tell us what to index next. For useful results, use `valuableResults` with the `source`/`position` pair stamped on each result — results are grouped and each group is numbered from 1 independently, so both are required. List **every** useful result (unlisted results are treated as not useful), and reserve `valuableSources` for useful URLs that were not among the returned results.
 
 **Daily refund cap (per team, per UTC day, default 100 credits).** Once a team's `creditsRefundedToday` reaches `dailyRefundCap`, further submissions still record feedback but no longer refund credits. The response sets `dailyCapReached: true`. Agents should stop calling this tool for the rest of the UTC day when they see that flag.
 
@@ -524,10 +524,15 @@ Sends structured feedback on a previous `firecrawl_search` result. The first fee
   "arguments": {
     "searchId": "0193f6c5-1234-7890-abcd-1234567890ab",
     "rating": "good",
+    "valuableResults": [
+      { "source": "web", "position": 1 },
+      { "source": "web", "position": 3 },
+      { "source": "news", "position": 2, "reason": "Broke the pricing change." }
+    ],
     "valuableSources": [
       {
-        "url": "https://docs.firecrawl.dev/features/search",
-        "reason": "Most up-to-date description of /search."
+        "url": "https://docs.firecrawl.dev/pricing",
+        "reason": "Not in the results; found via a result's pricing link. Answered the question."
       }
     ],
     "missingContent": [

@@ -1536,6 +1536,31 @@ function asText(data: unknown): string {
   return JSON.stringify(data, null, 2);
 }
 
+const SEARCH_RESULT_SOURCES = ['web', 'images', 'news'] as const;
+
+// Stamp each search result with its `source` and 1-indexed `position` so the
+// model can copy both straight into `firecrawl_search_feedback.valuableResults`
+// without counting array elements (miscounts silently corrupt feedback data).
+// Results come back grouped and each group is numbered from 1 independently, so
+// the position alone does not identify a result — always carry the source with
+// it. The stamps stay derived from each array's order, so never reorder or
+// filter between here and the returned envelope.
+function annotateResultPositions<T>(envelope: T): T {
+  const data = (envelope as { data?: Record<string, unknown> } | null)?.data;
+  if (!data) return envelope;
+
+  for (const source of SEARCH_RESULT_SOURCES) {
+    const results = data[source];
+    if (!Array.isArray(results)) continue;
+    data[source] = results.map((result, i) =>
+      result && typeof result === 'object'
+        ? { source, position: i + 1, ...result }
+        : result
+    );
+  }
+  return envelope;
+}
+
 // scrape tool (v2 semantics, minimal args)
 // Centralized scrape params (used by scrape, and referenced in search/crawl scrapeOptions)
 
@@ -2201,7 +2226,7 @@ For a programming question, add \`categories: ["developer"]\`. It searches an in
 
 \`categories: ["research"]\` restricts these web results to research-affiliated websites and returns page snippets. The \`firecrawl_research_*\` tools are a separate surface that searches paper abstracts and full text across biomedical (PubMed, bioRxiv, medRxiv) and arXiv literature.
 
-Each web result is a title, URL, and description, not the page. Add \`scrapeOptions\` to attach page content in the same call; those fetches ignore \`maxAge\`, so use \`firecrawl_scrape\` when you need a live fetch. Returns source-type result groups and usage metadata. Authenticated responses can include an \`id\` for optional search feedback.
+Each web result is a title, URL, and description, not the page. Add \`scrapeOptions\` to attach page content in the same call; those fetches ignore \`maxAge\`, so use \`firecrawl_scrape\` when you need a live fetch. Returns source-type result groups and usage metadata. Every result carries a \`source\` and a 1-indexed \`position\`, numbered from 1 within its own group, so the two together identify a result. Authenticated responses can include an \`id\` for optional search feedback — pass it to \`firecrawl_search_feedback\` with the \`source\`/\`position\` pairs of the results that were useful.
 `,
   parameters: z
     .object({
@@ -2243,7 +2268,8 @@ Each web result is a title, URL, and description, not the page. Add \`scrapeOpti
       const json = await keylessPost('/v2/search', searchBody, session);
       // Search feedback requires an authenticated account. Do not expose its
       // identifier to keyless clients, where it would invite an unusable call.
-      const keylessResponse = { ...(json ?? {}) };
+      // Positions are still stamped: they identify a result regardless of auth.
+      const keylessResponse = { ...annotateResultPositions(json ?? {}) };
       delete keylessResponse.id;
       return asText(keylessResponse);
     }
@@ -2253,7 +2279,7 @@ Each web result is a title, URL, and description, not the page. Add \`scrapeOpti
     // supports the optional authenticated `firecrawl_search_feedback` workflow.
     const client = getClient(session);
     const httpRes = await (client as any).http.post('/v2/search', searchBody);
-    return asText(httpRes?.data ?? {});
+    return asText(annotateResultPositions(httpRes?.data ?? {}));
   },
 });
 
@@ -2525,9 +2551,11 @@ if (!SEARCH_FEEDBACK_DISABLED && !isLocalKeylessStartup()) {
       destructiveHint: false, // Additive only; records feedback and may refund credits, does not delete data.
     },
     description: `
-Records schema-validated quality feedback for a prior \`firecrawl_search\` UUID \`searchId\`. A \`good\` rating requires a valuable source, \`partial\` a valuable source or at least one \`missingContent\` entry, and \`bad\` at least one \`missingContent\` entry or a query suggestion; caps are 50 \`valuableSources\` and 20 \`missingContent\` entries.
+Records schema-validated quality feedback for a prior \`firecrawl_search\` UUID \`searchId\`. A \`good\` rating requires a valuable result or a valuable source, \`partial\` either of those or at least one \`missingContent\` entry, and \`bad\` at least one \`missingContent\` entry or a query suggestion; caps are 50 \`valuableResults\`, 50 \`valuableSources\`, and 20 \`missingContent\` entries.
 
 Eligibility is limited to successful searches within the feedback age window. The record is idempotent per search ID. Eligible first feedback for a search can refund 1 credit; refunds are subject to the team's daily cap. The response reports whether a refund was applied, along with submission and daily-cap status.
+
+Mark useful returned results in \`valuableResults\` as \`{"source", "position"}\` copied off the result. Groups are numbered from 1 independently, so \`{"source":"web","position":1}\` and \`{"source":"news","position":1}\` are different results. Be exhaustive — results you do not list are treated as not useful. Reserve \`valuableSources\` for useful URLs that were NOT among the returned results; never report one result in both fields.
 `,
     parameters: z.object({
       searchId: z
@@ -2543,6 +2571,24 @@ Eligibility is limited to successful searches within the feedback age window. Th
         )
         .max(50)
         .optional(),
+      valuableResults: z
+        .array(
+          z.object({
+            source: z.enum(SEARCH_RESULT_SOURCES),
+            position: z.number().int().positive(),
+            reason: z.string().max(1000).optional(),
+          })
+        )
+        .max(50)
+        .optional()
+        .describe(
+          'Every result that was actually useful, copied from the `source` and `position` ' +
+            'stamped on each result. Each group is numbered from 1 independently, so the ' +
+            'source is required — `{"source":"web","position":1}` and ' +
+            '`{"source":"news","position":1}` are different results. Be exhaustive — ' +
+            'unlisted results are treated as not useful. Do not also list the same results ' +
+            'in valuableSources.'
+        ),
       missingContent: z
         .array(
           z.object({
@@ -2567,12 +2613,18 @@ Eligibility is limited to successful searches within the feedback age window. Th
         searchId,
         rating,
         valuableSources,
+        valuableResults,
         missingContent,
         querySuggestions,
       } = args as {
         searchId: string;
         rating: 'good' | 'bad' | 'partial';
         valuableSources?: { url: string; reason?: string }[];
+        valuableResults?: {
+          source: (typeof SEARCH_RESULT_SOURCES)[number];
+          position: number;
+          reason?: string;
+        }[];
         missingContent?: { topic: string; description?: string }[];
         querySuggestions?: string;
       };
@@ -2588,6 +2640,9 @@ Eligibility is limited to successful searches within the feedback age window. Th
       };
       if (valuableSources && valuableSources.length > 0) {
         body.valuableSources = valuableSources;
+      }
+      if (valuableResults && valuableResults.length > 0) {
+        body.valuableResults = valuableResults;
       }
       if (missingContent && missingContent.length > 0) {
         body.missingContent = missingContent;
@@ -3228,7 +3283,7 @@ Search web and specialized indexes, returning ranked results. Each web result is
 
 For a programming question, add \`categories: ["developer"]\`. It searches an index of repositories, GitHub issues, merged pull requests, repository READMEs, and curated documentation sites, and returns the hits in \`data.web\` with \`category: "developer"\`.
 
-Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
+Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`. Every result carries a \`source\` and a 1-indexed \`position\`, numbered from 1 within its own group.
 `,
     parameters: z
       .object({ ...searchToolBaseFields })
@@ -3290,7 +3345,7 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
       log.info('Searching', { query: searchQuery });
       const client = getClientFn(session);
       const httpRes = await (client as any).http.post('/v2/search', searchBody);
-      return asText(httpRes?.data ?? {});
+      return asText(annotateResultPositions(httpRes?.data ?? {}));
     },
   });
 }

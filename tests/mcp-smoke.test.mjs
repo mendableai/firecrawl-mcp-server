@@ -692,8 +692,12 @@ test('HTTP cloud transport calls Firecrawl API with authenticated session', asyn
   assert.deepEqual(JSON.parse(result.content[0].text), {
     creditsUsed: 1,
     data: {
+      // Stamped by annotateResultPositions so the model can cite results in
+      // firecrawl_search_feedback.valuableResults without counting.
       web: [
         {
+          source: 'web',
+          position: 1,
           title: 'Example Domain',
           url: 'https://example.com/',
         },
@@ -1190,8 +1194,12 @@ test('stdio transport calls Firecrawl API through a tool end to end', async (t) 
   assert.deepEqual(toolPayload, {
     creditsUsed: 1,
     data: {
+      // Stamped by annotateResultPositions so the model can cite results in
+      // firecrawl_search_feedback.valuableResults without counting.
       web: [
         {
+          source: 'web',
+          position: 1,
           title: 'Example Domain',
           url: 'https://example.com/',
         },
