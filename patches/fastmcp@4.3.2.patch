@@ -1,0 +1,104 @@
+diff --git a/dist/FastMCP.d.cts b/dist/FastMCP.d.cts
+index 8eba099cc20f7ae5f70060bebb3871c387cfb2de..c3031da662933c366c7320171db47c246cd3191a 100644
+--- a/dist/FastMCP.d.cts
++++ b/dist/FastMCP.d.cts
+@@ -605,6 +605,8 @@ type Tool<T extends FastMCPSessionAuth, Params extends ToolParameters = ToolPara
+         streamingHint?: boolean;
+     } & ToolAnnotations;
+     canAccess?: (auth: T) => boolean;
++    beforeValidate?: (args: unknown, auth: T) => ContentResult | Promise<ContentResult | undefined> | undefined;
++    canList?: (auth: T) => boolean;
+     description?: string;
+     execute: (args: StandardSchemaV1.InferOutput<Params>, context: Context<T>) => Promise<AudioContent | ContentResult | ImageContent | ResourceContent | ResourceLink | StandardSchemaV1.InferOutput<OutputParams> | string | TextContent | void>;
+     name: string;
+diff --git a/dist/FastMCP.d.ts b/dist/FastMCP.d.ts
+index 810df0c5b6511f34685a0651e6df83acd0239e7b..5c82680c32900c1ca39679e1be25e64c3408aee9 100644
+--- a/dist/FastMCP.d.ts
++++ b/dist/FastMCP.d.ts
+@@ -605,6 +605,8 @@ type Tool<T extends FastMCPSessionAuth, Params extends ToolParameters = ToolPara
+         streamingHint?: boolean;
+     } & ToolAnnotations;
+     canAccess?: (auth: T) => boolean;
++    beforeValidate?: (args: unknown, auth: T) => ContentResult | Promise<ContentResult | undefined> | undefined;
++    canList?: (auth: T) => boolean;
+     description?: string;
+     execute: (args: StandardSchemaV1.InferOutput<Params>, context: Context<T>) => Promise<AudioContent | ContentResult | ImageContent | ResourceContent | ResourceLink | StandardSchemaV1.InferOutput<OutputParams> | string | TextContent | void>;
+     name: string;
+diff --git a/dist/chunk-LWU5CQGW.js b/dist/chunk-LWU5CQGW.js
+index 474670585c1fff7d9609d0f900d0743df14a7688..f6091cbe8be4ef30d3eaec90c94a90d5a0802bd0 100644
+--- a/dist/chunk-LWU5CQGW.js
++++ b/dist/chunk-LWU5CQGW.js
+@@ -986,6 +986,9 @@ ${error instanceof Error ? error.stack : JSON.stringify(error)}`
+   }
+   setupToolHandlers(tools) {
+     const toolsMap = new Map(tools.map((tool) => [tool.name, tool]));
++    const listedTools = tools.filter(
++      (tool) => tool.canList ? tool.canList(this.#auth) : true
++    );
+     let cachedToolsList = null;
+     this.#server.setRequestHandler(ListToolsRequestSchema, async () => {
+       if (cachedToolsList) {
+@@ -994,7 +997,7 @@ ${error instanceof Error ? error.stack : JSON.stringify(error)}`
+         };
+       }
+       cachedToolsList = await Promise.all(
+-        tools.map(async (tool) => {
++        listedTools.map(async (tool) => {
+           return {
+             annotations: tool.annotations,
+             description: tool.description,
+@@ -1026,6 +1029,15 @@ ${error instanceof Error ? error.stack : JSON.stringify(error)}`
+           `Unknown tool: ${request.params.name}`
+         );
+       }
++      if (tool.beforeValidate) {
++        const earlyResult = await tool.beforeValidate(
++          request.params.arguments,
++          this.#auth
++        );
++        if (earlyResult !== void 0) {
++          return ContentResultZodSchema.parse(earlyResult);
++        }
++      }
+       let args = void 0;
+       if (tool.parameters) {
+         const parsed = await tool.parameters["~standard"].validate(
+diff --git a/dist/chunk-UYG7NPM6.cjs b/dist/chunk-UYG7NPM6.cjs
+index 3b695bf493c4f54fd970e145cf14fdd8effc9c6d..8883d346f9f32943f823a10bbb72d415f394ca6d 100644
+--- a/dist/chunk-UYG7NPM6.cjs
++++ b/dist/chunk-UYG7NPM6.cjs
+@@ -986,6 +986,9 @@ ${error instanceof Error ? error.stack : JSON.stringify(error)}`
+   }
+   setupToolHandlers(tools) {
+     const toolsMap = new Map(tools.map((tool) => [tool.name, tool]));
++    const listedTools = tools.filter(
++      (tool) => tool.canList ? tool.canList(this.#auth) : true
++    );
+     let cachedToolsList = null;
+     this.#server.setRequestHandler(_typesjs.ListToolsRequestSchema, async () => {
+       if (cachedToolsList) {
+@@ -994,7 +997,7 @@ ${error instanceof Error ? error.stack : JSON.stringify(error)}`
+         };
+       }
+       cachedToolsList = await Promise.all(
+-        tools.map(async (tool) => {
++        listedTools.map(async (tool) => {
+           return {
+             annotations: tool.annotations,
+             description: tool.description,
+@@ -1026,6 +1029,15 @@ ${error instanceof Error ? error.stack : JSON.stringify(error)}`
+           `Unknown tool: ${request.params.name}`
+         );
+       }
++      if (tool.beforeValidate) {
++        const earlyResult = await tool.beforeValidate(
++          request.params.arguments,
++          this.#auth
++        );
++        if (earlyResult !== void 0) {
++          return ContentResultZodSchema.parse(earlyResult);
++        }
++      }
+       let args = void 0;
+       if (tool.parameters) {
+         const parsed = await tool.parameters["~standard"].validate(

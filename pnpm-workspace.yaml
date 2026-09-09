@@ -1,3 +1,6 @@
 allowBuilds:
   esbuild: true
   tldjs: true
+
+patchedDependencies:
+  fastmcp@4.3.2: patches/fastmcp@4.3.2.patch

@@ -1,8 +1,7 @@
 /**
  * Firecrawl Research tools (experimental).
  *
- * Thin MCP wrappers over the `/v2/search/research/*` endpoints (research papers +
- * GitHub history/readmes).
+ * Thin MCP wrappers over the `/v2/search/research/*` paper endpoints.
  *
  * The installed `@mendable/firecrawl-js` predates the SDK's `research` client,
  * so we call the endpoints directly through the SDK's HTTP layer (auth +
@@ -11,7 +10,7 @@
  */
 
 import { z } from 'zod';
-import type { FastMCP } from 'fastmcp';
+import { type FastMCP, UserError } from 'fastmcp';
 
 interface SessionData {
   firecrawlApiKey?: string;
@@ -170,62 +169,21 @@ function fmtPaperMetadata(paper?: PaperHit): string {
   return lines.join('\n');
 }
 
-// Cap GitHub matched content so a page of results stays within the MCP
-// output-token limit. Higher than abstracts since issue/PR threads carry the
-// signal (repro steps, stack traces) the agent actually needs to verify.
-const MAX_GITHUB_CONTENT_CHARS = 1200;
-
-interface GitHubItem {
-  resultType?: string;
-  /** `owner/name`. */
-  repo?: string;
-  url?: string;
-  /** History page type (e.g. `issue`, `pull`). Omitted for readmes. */
-  pageType?: string;
-  /** Issue/PR number. Omitted for readmes. */
-  number?: number;
-  /** Number of matched segments/chunks. */
-  segmentCount?: number;
-  /** Readme URL (readme results). */
-  readmeUrl?: string;
-  /** Short matched excerpt. */
-  snippet?: string;
-  /** Full matched content in markdown. */
-  contentMd?: string;
-}
-
-/**
- * Render GitHub history/readme hits as `[repo#number] (kind)` / url / body
- * blocks — the same shape as `fmtHits`, but tuned for issues/PRs and readmes.
- * Markdown content keeps its newlines (so tables/code survive); only readmes and
- * snippets fall back when full content is absent.
- */
-function fmtGithub(results?: GitHubItem[]): string {
-  if (!results || results.length === 0) return '(no results)';
-  return results
-    .map((r) => {
-      const lines: string[] = [];
-      if (r.resultType === 'repo_readme') {
-        lines.push(`[${r.repo ?? '?'}] README`);
-      } else {
-        const ref = r.number != null ? `#${r.number}` : '';
-        const meta = [
-          r.pageType,
-          r.segmentCount ? `${r.segmentCount} segments` : '',
-        ]
-          .filter(Boolean)
-          .join(', ');
-        lines.push(`[${r.repo ?? '?'}${ref}]${meta ? ` (${meta})` : ''}`);
-      }
-      const url = r.readmeUrl ?? r.url;
-      if (url) lines.push(url);
-      const body = (r.contentMd || r.snippet || '').trim();
-      lines.push(
-        body ? body.slice(0, MAX_GITHUB_CONTENT_CHARS) : '(no content)'
-      );
-      return lines.join('\n');
-    })
-    .join('\n\n');
+function deprecatedGithubPayload() {
+  return {
+    code: 'DEPRECATED_TOOL',
+    message:
+      "firecrawl_research_search_github is deprecated and unavailable through MCP. Use firecrawl_developer_search, which searches GitHub issues, pull requests, and READMEs plus curated documentation sites and returns matched passages. It does not carry over this tool's score breakdown or its web fallback results.",
+    replacement: {
+      name: 'firecrawl_developer_search',
+      instructions:
+        'Pass the same natural-language query. Optionally set k to control the number of results, or set skills to "only" to search only agent-skill files.',
+      example_arguments: {
+        query: 'pysam VCF parsing memory leak',
+      },
+    },
+    docs_url: 'https://docs.firecrawl.dev/features/developer',
+  };
 }
 
 export function registerResearchTools(
@@ -241,14 +199,13 @@ export function registerResearchTools(
       openWorldHint: true, // Searches the Firecrawl research paper index.
       destructiveHint: false, // Query-only; no writes to external sources or the research index.
     },
-    description:
-      'Primary entry point for finding research papers by topic across AI/ML, computer science, ' +
-      'math, physics, biomedical, life sciences, and clinical literature. Semantic (HyDE) search ' +
-      'over indexed paper metadata and abstracts; returns ranked papers with paper id, title, ' +
-      'authors, and abstract. The query should be a natural-language research topic or question. ' +
-      'Run SEVERAL distinct framings of the question (sibling domains, rival methods, dataset or ' +
-      'benchmark names, conditions, populations, interventions, or outcomes) rather than one query ' +
-      '— recall improves markedly with diverse framings.',
+    description: `
+Search paper metadata and abstracts with a natural-language query across the indexed corpus, which spans biomedical, life-science, and clinical literature (PubMed, bioRxiv, medRxiv) alongside arXiv and other scientific sources. Optional author, category, and date filters constrain results.
+
+Several distinct framings of the same question surface different papers than a single query does.
+
+Returns ranked papers with canonical IDs, titles, authors, and abstracts.
+`,
     parameters: z.object({
       query: z
         .string()
@@ -323,10 +280,9 @@ export function registerResearchTools(
       openWorldHint: true, // Retrieves metadata for papers in public indexes (arXiv, PMC, DOI, etc.).
       destructiveHint: false, // Read-only metadata lookup.
     },
-    description:
-      'Fetch canonical metadata for one paper by primaryId or canonical paperId. ' +
-      'Use this after search/related results when you need the full title, abstract, authors, ' +
-      'categories, source ids, and dates rendered as markdown.',
+    description: `
+Retrieve canonical metadata for one paper ID, such as an arXiv, PMC, PMID, or DOI identifier. Returns the title, abstract, authors, categories, source IDs, and dates as markdown.
+`,
     parameters: z.object({
       paperId: z
         .string()
@@ -350,20 +306,16 @@ export function registerResearchTools(
   server.addTool({
     name: 'firecrawl_research_related_papers',
     annotations: {
-      title: 'Find related arXiv papers',
+      title: 'Find related papers via citation graph',
       readOnlyHint: true, // Finds related papers via citation graph expansion; returns candidates only.
       openWorldHint: true, // Traverses relationships across the public research paper corpus.
       destructiveHint: false, // Read-only graph query; no modifications.
     },
-    description:
-      'Expand from anchor papers you have already found, via the citation graph, ranked and filtered ' +
-      'to a natural-language `intent`. Pass arXiv ids of your strongest hits as `seed_ids`. Modes: ' +
-      '`similar` (cocitation/coupling — papers in the same niche; the default), `citers` (papers ' +
-      'that cite the anchors), `references` (papers the anchors cite). This reaches relevant papers ' +
-      'that plain search misses, so use it on your best hits before finishing. A `similar` call ' +
-      'already runs a DEEP multi-round expansion internally (re-seeding from each round’s best ' +
-      'finds), so one call reaches the wider neighborhood — no need to chain many. Returns the ' +
-      'candidates plus the pool size.',
+    description: `
+Find citation-graph candidates from one to ten \`seed_ids\`; the first ID is the primary seed and later IDs are anchors. \`mode\` defaults to \`similar\` (co-citation/bibliographic coupling); \`citers\` returns papers citing a seed and \`references\` papers cited by a seed. \`intent\` ranks candidates.
+
+Returns ranked candidates and the evaluated pool size.
+`,
     parameters: z.object({
       seed_ids: z.array(z.string()).min(1).max(10),
       intent: z.string().min(1),
@@ -417,11 +369,11 @@ export function registerResearchTools(
       openWorldHint: true, // Reads from publicly indexed paper full text when available.
       destructiveHint: false, // Read-only passage retrieval.
     },
-    description:
-      'Read the most relevant in-body (full-text) passages of ONE specific paper for a question. Use ' +
-      'this to VERIFY whether a candidate actually satisfies a constraint before you include or ' +
-      "reject it (e.g. 'does this paper actually use technique X / report a score on benchmark Y'). " +
-      "Returns the best-matching passages, or a notice if the paper's full text is unavailable.",
+    description: `
+Retrieve in-body passages from one paper that are relevant to a specific question. Full text is available only for indexed papers; \`k\` controls the number of passages.
+
+Returns matching passages or a notice when full text is unavailable.
+`,
     parameters: z.object({
       paperId: z
         .string()
@@ -459,33 +411,37 @@ export function registerResearchTools(
     },
   });
 
-  // --- search_github ---
+  // --- search_github: deprecated compatibility entry point ---
+  // Hidden from tools/list so new sessions never see it, still callable so a
+  // session holding a cached tool list gets a pointer to the replacement
+  // instead of an unknown-tool error. Same shape as firecrawl_extract.
   server.addTool({
     name: 'firecrawl_research_search_github',
     annotations: {
       title: 'Search GitHub history',
-      readOnlyHint: true, // Searches indexed GitHub issue/PR history and READMEs; returns matches only.
-      openWorldHint: true, // Searches public GitHub content.
-      destructiveHint: false, // Query-only; does not create issues, PRs, or modify repositories.
+      readOnlyHint: true,
+      openWorldHint: true,
+      destructiveHint: false,
     },
-    description:
-      'Search GitHub issue/PR history and repository readmes. Returns ranked matches with repo, ' +
-      'url, a short snippet, and (when available) the full matched content in markdown.',
+    description: `
+Deprecated compatibility entry point. Use firecrawl_developer_search for GitHub issues, pull requests, and READMEs, plus curated documentation sites, returned as matched passages.
+`,
     parameters: z.object({
       query: z.string().min(1),
       k: z.number().int().min(1).max(100).optional(),
     }),
-    execute: async (args: unknown, { session }): Promise<string> => {
-      const { query, k } = args as { query: string; k?: number };
-      const params = new URLSearchParams();
-      appendParam(params, 'query', query);
-      appendParam(params, 'k', k);
-      const client = getClient(session) as ClientLike;
-      const res = await client.http.get<{ results?: GitHubItem[] }>(
-        withQuery(`${BASE}/github`, params),
-        ORIGIN_HEADERS
-      );
-      return fmtGithub(res.data?.results);
+    canList: () => false,
+    beforeValidate: () => {
+      const payload = deprecatedGithubPayload();
+      return {
+        content: [{ type: 'text' as const, text: payload.message }],
+        isError: true,
+        structuredContent: payload,
+      };
+    },
+    execute: async (): Promise<string> => {
+      const payload = deprecatedGithubPayload();
+      throw new UserError(payload.message, payload);
     },
   });
 }

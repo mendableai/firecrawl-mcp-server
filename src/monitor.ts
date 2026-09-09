@@ -11,9 +11,13 @@
 
 import { z } from 'zod';
 import type { FastMCP } from 'fastmcp';
+import {
+  CoreHttpError,
+  credentialForOutboundRequest,
+  type CredentialSession,
+} from './session-credential';
 
-interface SessionData {
-  firecrawlApiKey?: string;
+interface SessionData extends CredentialSession {
   [key: string]: unknown;
 }
 
@@ -29,7 +33,13 @@ function resolveAuth(session?: SessionData): {
   apiKey?: string;
   baseUrl: string;
 } {
-  const apiKey = session?.firecrawlApiKey ?? process.env.FIRECRAWL_API_KEY;
+  // A request-scoped session is authoritative. In particular, managed OAuth
+  // credentials must become short-lived delegated assertions and must never
+  // fall through to a process-wide API key.
+  const apiKey =
+    session === undefined
+      ? process.env.FIRECRAWL_API_KEY
+      : credentialForOutboundRequest(session);
   const baseUrl = (process.env.FIRECRAWL_API_URL ?? DEFAULT_API_URL).replace(
     /\/$/,
     ''
@@ -73,7 +83,7 @@ async function monitorRequest(
     const message =
       payload?.error ||
       `HTTP ${response.status}: ${response.statusText || 'Request failed'}`;
-    throw new Error(message);
+    throw new CoreHttpError(message, response.status);
   }
 
   return payload;
@@ -215,124 +225,9 @@ export function registerMonitorTools(server: FastMCP<SessionData>): void {
       destructiveHint: false, // Additive; creates a new monitor without deleting existing monitors or external content.
     },
     description: `
-Create a Firecrawl monitor — a recurring scrape, crawl, or search that diffs each result against the last retained snapshot.
+Create a recurring scrape, crawl, or search monitor that compares each check with its retained predecessor. The simple form accepts \`page\`/\`pages\` or \`queries\` plus a plain-language \`goal\`; the advanced \`body\` form controls targets, schedule, change-tracking formats, judging, retention, webhook, and notifications.
 
-Prefer the simple path: pass \`page\` or \`pages\` plus \`goal\` to monitor specific URLs, OR pass \`queries\` plus \`goal\` to monitor web search results for new/changed hits. The tool will create the monitor with a 30-minute schedule and meaningful-change judging enabled by the API. Use \`body\` only for advanced requests such as crawl targets, JSON change tracking, custom retention, or manual \`judgeEnabled\` control.
-
-Meaningful-change judge: set \`goal\` to a plain-language description of what the user actually cares about. \`judgeEnabled\` defaults to true when \`goal\` is set, so providing \`goal\` is enough. Page webhooks expose \`isMeaningful\` and \`judgment\` on \`monitor.page\` events.
-
-Simple fields:
-- \`page\`: one page URL to monitor.
-- \`pages\`: multiple page URLs to monitor.
-- \`queries\`: one or more search queries (1-12) to monitor instead of fixed URLs. Each check runs the searches and diffs the result set, so you get alerted when new or changed results appear. Mutually exclusive with \`page\`/\`pages\` in the simple path.
-- \`searchWindow\`: optional recency window for search targets — one of \`5m\`, \`15m\`, \`1h\`, \`6h\`, \`24h\`, \`7d\` (default \`24h\`).
-- \`maxResults\`: optional max results per search, 1-50 (default 10).
-- \`includeDomains\` / \`excludeDomains\`: optional domain allow/deny lists for search targets.
-- \`goal\`: plain-English instruction for what changes matter. Required for the simple path (and always required when \`queries\` are set — web monitors must have a goal).
-- \`scheduleText\`: optional natural-language schedule, default \`every 30 minutes\`.
-- \`email\`: optional email recipient for summaries.
-- \`webhookUrl\`: optional webhook URL. Configures \`monitor.page\` and \`monitor.check.completed\`.
-
-**Search-mode example:**
-
-\`\`\`json
-{
-  "name": "firecrawl_monitor_create",
-  "arguments": {
-    "queries": ["new LLM release", "frontier model launch"],
-    "goal": "Notify me about major new LLM model releases.",
-    "searchWindow": "24h",
-    "maxResults": 10
-  }
-}
-\`\`\`
-
-Goal guidance:
-- Expand the user's one-line monitoring intent into a concise 2-3 sentence monitor goal.
-- State what should trigger an alert, restate any scope the user gave, and include intent-specific exclusions only when obvious from the user's request.
-- Generic noise such as whitespace, formatting-only changes, request IDs, tracking params, generic metadata, and unrelated page chrome is already handled by the judge; do not repeat it in every goal.
-- If the user is vague, keep the goal broad rather than guessing exclusions. If the user asks for broad monitoring or "any change", preserve that and do not add exclusions that hide changes.
-- If the user says they do not care about something, include that explicitly. It is okay to ask whether they want to ignore specific noise when it is likely to matter.
-- Do not invent page-specific sections, thresholds, entities, or business rules unless the user mentioned them.
-
-Query guidance (web monitors): \`queries\` control recall (what search retrieves) and \`goal\` controls precision (which results alert) — tune both.
-- Write keywords, not sentences: \`OpenAI new model release\`, not \`tell me when OpenAI releases a new model\`.
-- Quote multi-word entities (\`"Llama 4"\`); group synonyms with \`OR\` (\`launch OR release OR announcement\`).
-- Keep each query tight (~2-6 terms). One broad query usually beats several narrow ones — extra queries split the \`maxResults\` budget. Use one query per distinct entity; do not emit one per facet of a single subject.
-- Keep \`site:\` operators out of queries — use \`includeDomains\` / \`excludeDomains\`.
-- A healthy web monitor mostly returns \`new: 0\` and alerts only on genuinely new, on-goal results. Many \`ignored\` results ⇒ queries too broad (tighten them); nothing for long stretches ⇒ queries too narrow or window too tight (broaden); dismissed alerts ⇒ goal too broad (add an intent-specific Ignore). Aim for high precision with enough recall.
-
-Full \`body\` requests require: \`name\`, \`schedule\` (with \`cron\` or \`text\`), and \`targets\` (one or more \`{ type: 'scrape', urls: [...] }\`, \`{ type: 'crawl', url: '...' }\`, or \`{ type: 'search', queries: [...], searchWindow?, maxResults?, includeDomains?, excludeDomains? }\`). Optional: \`goal\` (required when any search target is present), \`judgeEnabled\`, \`webhook\`, \`notification\`, \`retentionDays\`.
-
-**Markdown-mode (default):** Each check produces a unified text diff of the page's markdown. No extra configuration needed.
-
-\`\`\`json
-{
-  "name": "firecrawl_monitor_create",
-  "arguments": {
-    "page": "https://example.com/blog",
-    "goal": "Alert when a new blog post is published or an existing headline changes.",
-    "email": "alerts@example.com"
-  }
-}
-\`\`\`
-
-**Multiple pages:**
-
-\`\`\`json
-{
-  "name": "firecrawl_monitor_create",
-  "arguments": {
-    "pages": ["https://example.com/pricing", "https://example.com/changelog"],
-    "goal": "Alert when pricing, packaging, or launch messaging changes.",
-    "webhookUrl": "https://example.com/webhooks/firecrawl"
-  }
-}
-\`\`\`
-
-**JSON-mode change tracking:** To detect changes in **specific structured fields** (price, headline, in-stock flag, list items) instead of the whole page, add a \`changeTracking\` format with \`modes: ["json"]\` and a JSON schema to the target's \`scrapeOptions.formats\`. The check response will then carry a per-field diff (keyed by JSON path, e.g. \`plans[0].price\`) and a \`snapshot.json\` with the full current extraction. See \`firecrawl_monitor_check\` for the response shape.
-
-\`\`\`json
-{
-  "name": "firecrawl_monitor_create",
-  "arguments": {
-    "body": {
-      "name": "Pricing watch",
-      "schedule": { "text": "hourly", "timezone": "UTC" },
-      "goal": "Alert when a pricing tier, price, billing period, limit, or headline feature changes. Ignore unrelated marketing copy unless it changes the pricing offer.",
-      "targets": [{
-        "type": "scrape",
-        "urls": ["https://example.com/pricing"],
-        "scrapeOptions": {
-          "formats": [{
-            "type": "changeTracking",
-            "modes": ["json"],
-            "prompt": "Extract pricing tiers and headline features for each plan.",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "plans": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "name":     { "type": "string" },
-                      "price":    { "type": "string" },
-                      "features": { "type": "array", "items": { "type": "string" } }
-                    }
-                  }
-                }
-              }
-            }
-          }]
-        }
-      }]
-    }
-  }
-}
-\`\`\`
-
-**Mixed mode (JSON + git-diff):** Use \`modes: ["json", "git-diff"]\` to get both per-field diffs and a markdown sidecar. The page is marked \`changed\` whenever either surface changed.
+In the simple form, a \`goal\` is required. If \`queries\` contains one or more non-empty values and is supplied with \`page\`/\`pages\`, \`queries\` create the search target and page targets are ignored. A monitor schedules future network checks and can send configured email or webhook notifications. Returns the created monitor.
 `,
     parameters: z.object({
       body: z.record(z.string(), z.any()).optional(),
@@ -371,12 +266,7 @@ Full \`body\` requests require: \`name\`, \`schedule\` (with \`cron\` or \`text\
       destructiveHint: false, // Read-only listing.
     },
     description: `
-List all Firecrawl monitors for the authenticated account.
-
-**Usage Example:**
-\`\`\`json
-{ "name": "firecrawl_monitor_list", "arguments": { "limit": 20 } }
-\`\`\`
+List monitors for the authenticated account with optional pagination controls. Returns one page of monitor records and pagination metadata.
 `,
     parameters: z.object({
       limit: z.number().int().positive().optional(),
@@ -400,12 +290,7 @@ List all Firecrawl monitors for the authenticated account.
       destructiveHint: false, // Read-only retrieval.
     },
     description: `
-Get a single monitor by ID.
-
-**Usage Example:**
-\`\`\`json
-{ "name": "firecrawl_monitor_get", "arguments": { "id": "mon_abc123" } }
-\`\`\`
+Retrieve one monitor by ID, including its configuration and current state. This does not run or modify the monitor.
 `,
     parameters: z.object({ id: z.string() }),
     execute: async (args: unknown, { session }): Promise<string> => {
@@ -427,18 +312,9 @@ Get a single monitor by ID.
       destructiveHint: true, // Can pause, replace, or remove monitor configuration; changes overwrite prior settings.
     },
     description: `
-Update a monitor. Pass any subset of fields to patch: \`name\`, \`status\` ("active" | "paused"), \`schedule\`, \`targets\`, \`goal\`, \`judgeEnabled\`, \`webhook\`, \`notification\`, \`retentionDays\`.
+Patch an existing monitor by ID. The body can change its name, active/paused status, schedule, targets, goal, judging, webhook, notifications, or retention; these changes affect future scheduled checks.
 
-**Usage Example:**
-\`\`\`json
-{
-  "name": "firecrawl_monitor_update",
-  "arguments": {
-    "id": "mon_abc123",
-    "body": { "status": "paused" }
-  }
-}
-\`\`\`
+Returns the updated monitor.
 `,
     parameters: z.object({
       id: z.string(),
@@ -467,12 +343,7 @@ Update a monitor. Pass any subset of fields to patch: \`name\`, \`status\` ("act
       destructiveHint: true, // Irreversibly removes the monitor and stops its schedule.
     },
     description: `
-Permanently delete a monitor and stop its schedule. This cannot be undone.
-
-**Usage Example:**
-\`\`\`json
-{ "name": "firecrawl_monitor_delete", "arguments": { "id": "mon_abc123" } }
-\`\`\`
+Permanently delete a monitor by ID and stop its future schedule. This operation cannot be undone and returns deletion status.
 `,
     parameters: z.object({ id: z.string() }),
     execute: async (args: unknown, { session, log }): Promise<string> => {
@@ -496,12 +367,7 @@ Permanently delete a monitor and stop its schedule. This cannot be undone.
       destructiveHint: false, // Starts a read-only check job; does not delete the monitor or external sites.
     },
     description: `
-Trigger a monitor check immediately, outside its normal schedule. Returns the queued check.
-
-**Usage Example:**
-\`\`\`json
-{ "name": "firecrawl_monitor_run", "arguments": { "id": "mon_abc123" } }
-\`\`\`
+Queue an immediate check for a monitor outside its normal schedule. This starts network work for the monitor's configured targets and returns the queued check.
 `,
     parameters: z.object({ id: z.string() }),
     execute: async (args: unknown, { session }): Promise<string> => {
@@ -524,12 +390,7 @@ Trigger a monitor check immediately, outside its normal schedule. Returns the qu
       destructiveHint: false, // Read-only listing.
     },
     description: `
-List historical checks for a monitor.
-
-**Usage Example:**
-\`\`\`json
-{ "name": "firecrawl_monitor_checks", "arguments": { "id": "mon_abc123", "limit": 10, "status": "completed" } }
-\`\`\`
+List historical checks for a monitor, optionally filtered by status and bounded by a result limit. Returns one page of check summaries and pagination metadata.
 `,
     parameters: z.object({
       id: z.string(),
@@ -562,60 +423,9 @@ List historical checks for a monitor.
       destructiveHint: false, // Read-only retrieval of diff snapshots and judgments.
     },
     description: `
-Get a single check with page-level diff results. Filter \`pageStatus\` to surface only the pages that changed (or were new, removed, etc.).
+Retrieve one monitor check and its page-level results, optionally filtered by page status. Pages report \`same\`, \`new\`, \`changed\`, \`removed\`, or \`error\`; configured goal judging can add a meaningful-change decision.
 
-Each entry in \`data.pages[]\` has \`url\`, \`status\` (\`same\` | \`new\` | \`changed\` | \`removed\` | \`error\`), optional \`judgment\` when goal-based judging ran, and — when changed — a \`diff\` and possibly a \`snapshot\`. The shape of \`diff\` depends on the monitor's \`formats\` configuration:
-
-- **Markdown mode (default).** \`diff.text\` is the unified markdown diff; \`diff.json\` is a parse-diff AST (\`{ files: [...] }\`). No \`snapshot\`.
-- **JSON mode** (\`changeTracking\` with \`modes: ["json"]\`). \`diff.json\` is a per-field map keyed by JSON path into the extraction, e.g. \`plans[0].price\`, with each value being \`{ previous, current }\`. \`snapshot.json\` is the full current extraction. No \`diff.text\`.
-- **Mixed mode** (\`modes: ["json", "git-diff"]\`). Both \`diff.text\` (markdown sidecar) AND \`diff.json\` (per-field map) are present, plus \`snapshot.json\`.
-
-**Example JSON-mode response \`pages[]\` entry:**
-
-\`\`\`json
-{
-  "url": "https://example.com/pricing",
-  "status": "changed",
-  "diff": {
-    "json": {
-      "plans[0].price":       { "previous": "$19/mo",        "current": "$24/mo" },
-      "plans[1].features[2]": { "previous": "10 GB storage", "current": "25 GB storage" }
-    }
-  },
-  "snapshot": { "json": { "plans": [/* current full extraction matching the monitor's schema */] } },
-  "judgment": {
-    "meaningful": true,
-    "confidence": "high",
-    "reason": "The pricing changed, which matches the monitor goal.",
-    "meaningfulChanges": [
-      {
-        "type": "changed",
-        "before": "$19/mo",
-        "after": "$24/mo",
-        "reason": "The tracked plan price changed."
-      }
-    ]
-  }
-}
-\`\`\`
-
-When summarizing a check for the user, prefer \`diff.json\` paths (e.g. "plans[0].price changed from $19/mo to $24/mo") over re-printing the markdown diff — it's more concise and grounded in the schema fields they asked for.
-
-When \`judgment\` is present, use it to decide what to surface. \`judgment.meaningful: false\` means the change was classified as noise for the monitor's goal. When \`judgment.meaningfulChanges\` is present, prefer those goal-relevant changes over raw diff hunks; each item includes \`type\`, \`before\`, \`after\`, and \`reason\`.
-
-The endpoint paginates via a top-level \`next\` URL; this tool returns one page at a time. Increase \`limit\` (max 100) to fetch fewer pages.
-
-**Usage Example:**
-\`\`\`json
-{
-  "name": "firecrawl_monitor_check",
-  "arguments": {
-    "id": "mon_abc123",
-    "checkId": "chk_xyz",
-    "pageStatus": "changed"
-  }
-}
-\`\`\`
+Markdown tracking returns a unified text diff, JSON tracking returns field paths with previous/current values and a current snapshot, and mixed tracking returns both. Returns one page of results plus a \`next\` URL when more pages exist.
 `,
     parameters: z.object({
       id: z.string(),

@@ -7,7 +7,8 @@ WORKDIR /app
 # Enable pnpm via corepack
 RUN corepack enable && corepack prepare pnpm@10.17.1 --activate
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches ./patches
 # Install dev dependencies for the build, but skip scripts to avoid running
 # the package "prepare" script before the source code is copied.
 RUN pnpm install --frozen-lockfile --ignore-scripts
@@ -27,7 +28,8 @@ RUN apk add --no-cache nginx bash curl
 
 # Copy built app and install prod deps only
 COPY --from=builder /app/dist ./dist
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches ./patches
 RUN pnpm install --prod --frozen-lockfile --ignore-scripts
 
 # NGINX config and entrypoint
@@ -36,6 +38,7 @@ COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 ENV PORT=3000
+ENV FASTMCP_ENDPOINT=/v2/mcp
 # Second in-process instance (search surface). Internal only, reached by nginx.
 # on localhost, never exposed directly.
 ENV FIRECRAWL_MCP_SEARCH_PORT=3001

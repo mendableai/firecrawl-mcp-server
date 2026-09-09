@@ -15,6 +15,7 @@ A Model Context Protocol (MCP) server that brings [Firecrawl](https://github.com
 ## Features
 
 - Search the web and get full page content
+- Search an index built for coding agents: GitHub issues, merged pull requests, READMEs, and docs
 - Scrape any URL into clean, structured data
 - Interact with pages — click, navigate, and operate
 - Deep research with autonomous agent
@@ -23,6 +24,18 @@ A Model Context Protocol (MCP) server that brings [Firecrawl](https://github.com
 - SSE support
 
 > Play around with [our MCP Server on MCP.so's playground](https://mcp.so/playground?server=firecrawl-mcp-server) or on [Klavis AI](https://www.klavis.ai/mcp-servers).
+
+## When to Use This Server
+
+- Use `firecrawl_scrape` when you have a known URL and want its content as markdown or as JSON matching a schema you supply.
+- Use `firecrawl_map` when you need to discover URLs on a site without fetching their content.
+- Use `firecrawl_crawl` when you need content from many pages under a site; set `limit`, `includePaths`/`excludePaths`, or `maxDiscoveryDepth` to bound it.
+- Use `firecrawl_search` when you're starting from a query rather than a URL and want ranked web results; add `scrapeOptions` if you also want page content fetched in the same call (the search-only endpoint never fetches content).
+- Use `firecrawl_interact` when a page needs a click, type, or navigate action before you can read it — pass a `url` for a fresh page or a `scrapeId` to continue on one you already scraped.
+- Use the `firecrawl_monitor_*` tools when the same page needs to be checked on a recurring schedule with diffs and change alerts, rather than fetched once.
+- Consider something else when you need to hold a browser session open across many of your own steps with your own retry and termination logic: each `firecrawl_interact` call runs one `prompt` or `code` turn to completion and returns control — the session can persist across calls via `scrapeId` and ends with `firecrawl_interact_stop`, but you cannot drive it interactively step-by-step from the client side within a single call.
+
+This server lists 25 tools when the full profile registers with default settings (feedback tools included, not running in local-keyless mode). Setting `FIRECRAWL_NO_SEARCH_FEEDBACK=1` and/or `FIRECRAWL_NO_ENDPOINT_FEEDBACK=1` removes the corresponding feedback tools and reduces this count, as does local keyless startup. For clients with a tool-slot limit: the hosted keyless endpoint (`https://mcp.firecrawl.dev/v2/mcp`, no API key) exposes only 3 — `firecrawl_scrape`, `firecrawl_search`, `firecrawl_parse` — and the dedicated [search-only endpoint](#search-only-endpoint) (`https://mcp.firecrawl.dev/v2/mcp-search`) exposes a fixed 6 read-only tools.
 
 ## Installation
 
@@ -34,15 +47,29 @@ Connect to the remote hosted server with no setup:
 https://mcp.firecrawl.dev/v2/mcp
 ```
 
-On the keyless free tier, `scrape`, `search`, and `interact` work without an API key (rate-limited). Other tools such as `crawl`, `map`, `agent`, and `extract` still need a key.
+On the keyless free tier, `scrape`, `search`, and `parse` work without an API key (rate-limited). Other tools such as `crawl`, `map`, and `agent` still need a key.
 
-Prefer an API key or OAuth whenever the human can sign up. It unlocks the full tool set and higher limits. With a key, use:
+Prefer OAuth or an API key whenever the human can sign up. It unlocks the full tool set and higher limits.
+
+For an interactive account connection, configure your MCP client to use this server URL. This is an MCP endpoint, **not a browser page**; use the client's account-connection flow and do not add a second Firecrawl server entry when reconnecting:
 
 ```
-https://mcp.firecrawl.dev/{FIRECRAWL_API_KEY}/v2/mcp
+https://mcp.firecrawl.dev/v2/mcp-oauth
 ```
 
-See the [MCP server docs](https://docs.firecrawl.dev/mcp-server) and the [agent onboarding guide](https://www.firecrawl.dev/agent-onboarding/SKILL.md) for setup details.
+For an API-key connection (for example, an unattended integration), keep the server URL as:
+
+```
+https://mcp.firecrawl.dev/v2/mcp
+```
+
+Then configure the client's secure header or secret setting with:
+
+```
+Authorization: Bearer <FIRECRAWL_API_KEY>
+```
+
+Never put an API key in the server URL. Never put an API key in an agent chat. Configure it directly in the client or secret manager. See the [hosted MCP setup guide](https://docs.firecrawl.dev/mcp-server) and the [agent onboarding guide](https://www.firecrawl.dev/agent-onboarding/SKILL.md) for client-specific instructions.
 
 #### Search-only endpoint
 
@@ -52,7 +79,7 @@ A read-only, search-only surface is also hosted at:
 https://mcp.firecrawl.dev/v2/mcp-search
 ```
 
-It exposes a fixed set of six read-only tools: `firecrawl_search` and the five `firecrawl_research_*` tools. It performs no page-content fetching and has its own OAuth identity; the full endpoint above is unchanged. See [docs/search-profile.md](docs/search-profile.md) for the full contract.
+It exposes a fixed set of six read-only tools: `firecrawl_search`, `firecrawl_developer_search`, and the four `firecrawl_research_*` tools. It performs no page-content fetching and has its own OAuth identity; the full endpoint above is unchanged. See [docs/search-profile.md](docs/search-profile.md) for the full contract.
 
 ### Running with npx
 
@@ -275,7 +302,9 @@ Use this guide to select the right tool for your task:
 - **If you have multiple known URLs:** call **scrape** for each URL. If you specifically need one bulk API operation, use the Firecrawl API batch endpoint outside MCP.
 - **If you need to discover URLs on a site:** use **map**
 - **If you want to search the web for info:** use **search**
-- **If you need complex research across multiple unknown sources:** use **agent**
+- **If you have a programming question** (a library, an API contract, an error message, a known bug): use **developer search**
+- **If you need scientific papers** (biomedical, life-science, clinical, or arXiv literature): use **research tools** — they search paper abstracts and full text. `search` with `categories: ["research"]` is a different thing: a website filter over ordinary web results.
+- **If you need multi-source research that returns structured data, do not know the URLs, or the answer spans several sites** (an entity plus its fields, a list, a dataset): use **agent**
 - **If you want to analyze a whole site or section:** use **crawl** (with limits!)
 - **If you need interactive browser automation** (click, type, navigate): use **interact** with a URL for a fresh page, or **scrape** + **interact** when you already scraped the page or need tighter scrape control
 
@@ -288,9 +317,9 @@ Use this guide to select the right tool for your task:
 | map          | Discovering URLs on a site                     | URL[]                          |
 | crawl        | Multi-page extraction (with limits)            | final crawl status/data after internal polling |
 | parse        | Files and hosted upload refs                   | markdown, JSON, or document output |
-| extract      | Structured extraction from URLs                | JSON structured data           |
 | search       | Web search for info                            | results[]                      |
-| agent        | Complex multi-source research                  | JSON (structured data)         |
+| developer    | Programming questions over developer sources   | results[] with passages        |
+| agent        | Multi-source research, unknown or many sites   | JSON (structured data)         |
 | monitor      | Recurring page checks                          | monitor/check metadata and diffs |
 | research     | Paper and GitHub repository research           | research results and repo matches |
 
@@ -449,7 +478,7 @@ Search the web and optionally extract content from search results.
 {
   "name": "firecrawl_search",
   "arguments": {
-    "query": "latest AI research papers 2023",
+    "query": "remote work stipend policies at tech companies",
     "highlights": true,
     "limit": 5,
     "lang": "en",
@@ -465,13 +494,15 @@ Search the web and optionally extract content from search results.
 
 Set `highlights` to `true` to request query-relevant highlights or `false` to keep the original search snippets. Omit it to use the API's default behavior.
 
+For scientific papers, see [Research Tools](#12-research-tools-firecrawl_research_): they search paper abstracts and full text, while `categories: ["research"]` here filters ordinary web results to research-affiliated websites.
+
 **Returns:**
 
 - Array of search results (with optional scraped content), plus an `id` field. Pass that `id` to `firecrawl_search_feedback` after you've used the results to refund 1 credit (search costs 2) and improve search quality.
 
 **Prompt Example:**
 
-> "Find the latest research papers on AI published in 2023."
+> "Compare remote work stipend policies across tech companies."
 
 ### 3b. Search Feedback Tool (`firecrawl_search_feedback`)
 
@@ -645,82 +676,37 @@ Parse local files or hosted upload references with Firecrawl's `/v2/parse` endpo
 
 **Returns:** Parsed document content or hosted upload instructions with a `nextToolCall`.
 
-### 7. Extract Tool (`firecrawl_extract`)
+### 7. Structured data with Scrape JSON
 
-Extract structured information from web pages using LLM capabilities. Supports both cloud AI and self-hosted LLM extraction.
-
-**Best for:**
-
-- Extracting specific structured data like prices, names, details.
-
-**Not recommended for:**
-
-- When you need the full content of a page (use scrape)
-- When you're not looking for specific structured data
-
-**Arguments:**
-
-- `urls`: Array of URLs to extract information from
-- `prompt`: Custom prompt for the LLM extraction
-- `systemPrompt`: System prompt to guide the LLM
-- `schema`: JSON schema for structured data extraction
-- `allowExternalLinks`: Allow extraction from external links
-- `enableWebSearch`: Enable web search for additional context
-- `includeSubdomains`: Include subdomains in extraction
-
-When using a self-hosted instance, the extraction will use your configured LLM. For cloud API, it uses Firecrawl's managed LLM service.
-**Prompt Example:**
-
-> "Extract the product name, price, and description from these product pages."
-
-**Usage Example:**
+For structured data from a known page, call `firecrawl_scrape` once per URL with `formats: ["json"]`. Put the extraction prompt and JSON schema in `jsonOptions`.
 
 ```json
 {
-  "name": "firecrawl_extract",
+  "name": "firecrawl_scrape",
   "arguments": {
-    "urls": ["https://example.com/page1", "https://example.com/page2"],
-    "prompt": "Extract product information including name, price, and description",
-    "systemPrompt": "You are a helpful assistant that extracts product information",
-    "schema": {
-      "type": "object",
-      "properties": {
-        "name": { "type": "string" },
-        "price": { "type": "number" },
-        "description": { "type": "string" }
-      },
-      "required": ["name", "price"]
-    },
-    "allowExternalLinks": false,
-    "enableWebSearch": false,
-    "includeSubdomains": false
+    "url": "https://example.com/product",
+    "formats": ["json"],
+    "jsonOptions": {
+      "prompt": "Extract the product name, price, and description.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "price": { "type": "number" },
+          "description": { "type": "string" }
+        },
+        "required": ["name", "price"]
+      }
+    }
   }
 }
 ```
 
-**Returns:**
-
-- Extracted structured data as defined by your schema
-
-```json
-{
-  "content": [
-    {
-      "type": "text",
-      "text": {
-        "name": "Example Product",
-        "price": 99.99,
-        "description": "This is an example product description"
-      }
-    }
-  ],
-  "isError": false
-}
-```
+When the URLs are not known or the data spans several sites, use `firecrawl_agent` for multi-source research.
 
 ### 8. Agent Tool (`firecrawl_agent`)
 
-Autonomous web research agent. This is a separate AI agent layer that independently browses the internet, searches for information, navigates through pages, and extracts structured data based on your query.
+Autonomous web research agent that returns structured data when you do not know the URLs or the answer spans several sites. Describe the fields you need, optionally pass a JSON schema and seed URLs, and the agent searches, navigates, reads pages, and returns JSON assembled across sources. Use it for an entity plus its fields, for lists and datasets, and for pages that need navigation to reach the data. For one known URL use `firecrawl_scrape` with JSON format instead.
 
 **How it works:**
 
@@ -863,15 +849,18 @@ Stop an interact session for a scraped page when you are done interacting.
 
 Search and inspect papers and GitHub repositories through the research MCP tools.
 
+**Covers:** paper abstracts and full text across biomedical, life-science, and clinical literature (PubMed, bioRxiv, medRxiv) alongside arXiv and other scientific sources.
+
 **Available research tools:**
 
-- `firecrawl_research_search_papers`: search research papers.
-- `firecrawl_research_inspect_paper`: inspect one paper.
-- `firecrawl_research_related_papers`: find related papers.
-- `firecrawl_research_read_paper`: read paper content.
-- `firecrawl_research_search_github`: search GitHub repositories.
+- `firecrawl_research_search_papers`: search paper metadata and abstracts with a natural-language query, with optional author, category, and date filters.
+- `firecrawl_research_inspect_paper`: retrieve canonical metadata for one paper ID (arXiv, PMC, PMID, or DOI).
+- `firecrawl_research_related_papers`: expand from one or more anchor papers through the citation graph.
+- `firecrawl_research_read_paper`: read full-text passages from a specific paper.
 
 **Best for:** Literature review, paper lookup, and repository discovery workflows where the agent needs a focused research surface instead of general web scraping.
+
+`firecrawl_search` with `categories: ["research"]` is a different surface: it filters ordinary web results to research-affiliated websites and returns page snippets, not paper records. Use these tools when the question is about the literature itself, and pass several distinct framings of the same question — they surface different papers than a single query does.
 
 ### 13. Monitor Tools (`firecrawl_monitor_*`)
 
@@ -941,6 +930,33 @@ Pass `body` when you need crawl targets, JSON change tracking, custom retention,
 - `firecrawl_monitor_delete`: delete a monitor (destructive; only call when the user intends to remove it).
 - `firecrawl_monitor_checks`: list checks, optionally filtered by status.
 - `firecrawl_monitor_check`: get page-level results, including `diff`, `snapshot`, `judgment.meaningful`, and `judgment.meaningfulChanges`.
+
+### 14. Developer Search Tool (`firecrawl_developer_search`)
+
+Search an index built for coding agents. The index covers GitHub issues, merged pull requests, repository READMEs, and curated documentation sites.
+
+**Best for:** A programming question — code behaviour, a library or framework, an API contract, an error message, or a known bug.
+
+**Arguments:**
+
+```json
+{
+  "name": "firecrawl_developer_search",
+  "arguments": {
+    "query": "how do I configure retries",
+    "k": 10,
+    "skills": "only"
+  }
+}
+```
+
+- `query` (required): the developer question or search phrase.
+- `k`: number of ranked results. The default is 10 and the maximum is 100.
+- `skills`: set to `"only"` to search agent-skill files alone.
+
+**Returns:** Ranked results. Each result carries an ID, a source type (`issue`, `pull_request`, `readme`, or `doc`), a URL, a title, and the matched passages in markdown.
+
+`firecrawl_search` with `categories: ["developer"]` searches the same index beside the web results. Use this tool instead when you want the matched passages, the `skills` filter, or no web results in the response. The search-only endpoint exposes both tools, and the same choice applies there.
 
 ## Logging System
 

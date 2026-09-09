@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  fastmcp@4.3.2:
+    hash: 4ce43b72d62ea76fc9a1cc3a6244a4258d3311a6d369cbe171b5186b3139b489
+    path: patches/fastmcp@4.3.2.patch
+
 importers:
 
   .:
@@ -16,7 +21,7 @@ importers:
         version: 17.2.2
       fastmcp:
         specifier: 4.3.2
-        version: 4.3.2
+        version: 4.3.2(patch_hash=4ce43b72d62ea76fc9a1cc3a6244a4258d3311a6d369cbe171b5186b3139b489)
       zod:
         specifier: ^4.1.5
         version: 4.1.11
@@ -2509,7 +2514,7 @@ snapshots:
 
   fast-uri@3.1.3: {}
 
-  fastmcp@4.3.2:
+  fastmcp@4.3.2(patch_hash=4ce43b72d62ea76fc9a1cc3a6244a4258d3311a6d369cbe171b5186b3139b489):
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
       '@standard-schema/spec': 1.0.0
@@ -2521,7 +2526,7 @@ snapshots:
       strict-event-emitter-types: 2.0.0
       undici: 7.28.0
       uri-templates: 0.2.0
-      xsschema: 0.4.4(zod-to-json-schema@3.25.2(zod@4.1.11))(zod@4.4.3)
+      xsschema: 0.4.4(zod-to-json-schema@3.25.2(zod@4.4.3))(zod@4.4.3)
       yargs: 18.0.0
       zod: 4.4.3
       zod-to-json-schema: 3.25.2(zod@4.4.3)
@@ -3353,7 +3358,7 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  xsschema@0.4.4(zod-to-json-schema@3.25.2(zod@4.1.11))(zod@4.4.3):
+  xsschema@0.4.4(zod-to-json-schema@3.25.2(zod@4.4.3))(zod@4.4.3):
     optionalDependencies:
       zod: 4.4.3
       zod-to-json-schema: 3.25.2(zod@4.4.3)
