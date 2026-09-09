@@ -87,6 +87,22 @@ It exposes a fixed set of six read-only tools: `firecrawl_search`, `firecrawl_de
 env FIRECRAWL_API_KEY=fc-YOUR_API_KEY npx -y firecrawl-mcp
 ```
 
+### Running on Autohand Code
+
+Connect to Firecrawl's hosted MCP endpoint without an API key:
+
+```bash
+autohand mcp add --transport http firecrawl https://mcp.firecrawl.dev/v2/mcp
+```
+
+For the local server with an API key, use:
+
+```bash
+autohand mcp add firecrawl env FIRECRAWL_API_KEY=fc-YOUR_API_KEY npx -y firecrawl-mcp
+```
+
+Add `--scope project` after `add` to keep the server configuration in the current project. See [Autohand Code](https://github.com/autohandai/code-cli/) for current installation and CLI details.
+
 ### Manual Installation
 
 ```bash
