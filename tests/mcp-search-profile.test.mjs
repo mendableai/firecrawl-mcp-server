@@ -861,6 +861,11 @@ test('primary search profile uses the strict marketplace search tool, not the fu
   const tools = await listToolDefinitions(port, SEARCH_ENDPOINT, headers);
   const search = tools.find((tool) => tool.name === 'firecrawl_search');
   assert.ok(search, 'primary profile must register firecrawl_search');
+  assert.equal(
+    search.annotations?.readOnlyHint,
+    true,
+    'search-profile firecrawl_search has no scrapeOptions.actions and stays read-only'
+  );
   assert.doesNotMatch(JSON.stringify(search.inputSchema), /scrapeOptions/);
   assert.doesNotMatch(search.description ?? '', /search_feedback|refund/i);
   assert.equal(search.inputSchema.properties.limit.type, 'integer');
