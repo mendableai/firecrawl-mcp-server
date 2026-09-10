@@ -1,0 +1,16 @@
+schema_version: "1.0"
+
+target: http://localhost:3000
+
+redact:
+  server_url: false
+
+scenarios:
+  protocol_and_errors:
+    description: "Protocol handshake, tool schema listing, and error handling"
+    actions:
+      - list_tools
+      - call_tool:
+          name: firecrawl_scrape
+          arguments:
+            url: "https://example.com"

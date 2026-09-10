@@ -1,0 +1,56 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: pnpm
+
+      - name: Install mcp-recorder
+        run: pip install -r integration/requirements.txt
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Start MCP server
+        run: FIRECRAWL_API_KEY=test HTTP_STREAMABLE_SERVER=true node dist/index.js &
+
+      - name: Wait for server
+        run: |
+          for i in $(seq 1 10); do
+            curl -sf http://localhost:3000/health && exit 0
+            sleep 1
+          done
+          echo "Server failed to start" && exit 1
+
+      - name: Verify protocol cassette
+        run: |
+          mcp-recorder verify \
+            --cassette integration/cassettes/protocol_and_errors.json \
+            --target http://localhost:3000 \
+            --verbose
