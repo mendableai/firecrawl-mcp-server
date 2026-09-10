@@ -1532,8 +1532,26 @@ function getClient(session?: SessionData): FirecrawlApp {
   return client;
 }
 
+const MAX_RESPONSE_CHARS = Number(process.env.MAX_RESPONSE_CHARS || 50000); 
+const RESPONSE_MODE = (process.env.RESPONSE_MODE || 'full').toLowerCase(); 
+
+function stripContent(data: unknown): unknown {
+  if (typeof data !== 'object' || data === null) return data;
+  const obj = data as Record<string, unknown>
+  const contentFields = ["markdown", "html", "rawHtml", "content"];
+  const stripped = {...obj};
+  for(const field of contentFields){
+    if(field in stripped) delete stripped[field];
+  }
+  return stripped;
+}
+
 function asText(data: unknown): string {
-  return JSON.stringify(data, null, 2);
+  const processed = RESPONSE_MODE === 'metadata' ? stripContent(data) : data;
+  const serialized = JSON.stringify(processed, null, 2);
+  if (serialized.length <= MAX_RESPONSE_CHARS) return serialized;
+  const truncated = serialized.slice(0, MAX_RESPONSE_CHARS);
+  return `${truncated}\n\n[TRUNCATED: Response exceeded ${MAX_RESPONSE_CHARS} characters. Set MAX_RESPONSE_CHARS env var to adjust, or use more specific scrape parameters to reduce response size.]`;
 }
 
 // scrape tool (v2 semantics, minimal args)
