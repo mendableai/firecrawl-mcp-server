@@ -8,6 +8,14 @@ import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { z } from 'zod';
+import {
+  searchSourceSchema,
+  hasAlexandria,
+  normalizeSearchSources,
+  searchQueryIsValid,
+  ALEXANDRIA_INSTRUCTIONS,
+} from './alexandria';
+import { loadCliCredentials } from './cli-credentials';
 import { registerDeveloperTools } from './developer';
 import { extractSingleTrustedClientIp } from './keyless-client-ip';
 import { registerMonitorTools } from './monitor';
@@ -27,6 +35,7 @@ import {
 } from './session-credential';
 
 dotenv.config({ debug: false, quiet: true });
+loadCliCredentials();
 
 const require = createRequire(import.meta.url);
 const { version: packageVersion } = require('../package.json') as {
@@ -131,7 +140,9 @@ function isFirecrawlApiKey(token: string): boolean {
 }
 
 function isLegacyKeyPathRequest(request: MCPAuthRequest | undefined): boolean {
-  return normalizeHeader(request?.headers?.['x-firecrawl-key-transport']) === 'path';
+  return (
+    normalizeHeader(request?.headers?.['x-firecrawl-key-transport']) === 'path'
+  );
 }
 
 function requestShouldReceiveOAuthChallenge(
@@ -483,9 +494,9 @@ async function introspectToken(
   // `active`, is an unusable answer rather than a verdict on the credential.
   // Reading `active` off `null` would throw past every tagged error here and
   // reach the client as an OAuth challenge carrying raw parser text.
-  const data = (await response.json().catch(() => null)) as
-    | OAuthIntrospectionResponse
-    | null;
+  const data = (await response
+    .json()
+    .catch(() => null)) as OAuthIntrospectionResponse | null;
   if (!data || typeof data.active !== 'boolean') {
     throw credentialValidationUnavailable({
       elapsedMs: elapsedMs(),
@@ -880,16 +891,16 @@ function buildSearchQueryWithDomains(
 // adds `scrapeOptions` on top; the search surface uses these as-is (strict, no
 // scrapeOptions). Defining the field set once keeps the two surfaces from
 // drifting when a source type, category, or filter changes.
-const searchSourceTypeSchema = z.enum(['web', 'images', 'news', 'exchange']);
-// The API accepts a source as a bare name ("exchange") or as {type: "exchange"};
-// both forms are forwarded verbatim.
-const searchSourceSchema = z.union([
-  searchSourceTypeSchema,
-  z.object({ type: searchSourceTypeSchema }),
-]);
-
 const searchToolBaseFields = {
-  query: z.string().min(1),
+  query: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Optional only for catalogue browsing with sources alexandria.'),
+  skills: z
+    .boolean()
+    .optional()
+    .describe('Include contextual tool matches for the query and result URLs.'),
   highlights: z
     .boolean()
     .optional()
@@ -905,9 +916,7 @@ const searchToolBaseFields = {
   sources: z
     .array(searchSourceSchema)
     .optional()
-    .describe(
-      'Result groups to return; each entry is a source name such as "exchange" or an object such as {type: "exchange"}. `exchange` adds Firecrawl Exchange capability hits in `data.exchange` (provider, capability, concept, cohorts, creditsCost, similarity); they are catalogue entries, not documents, cost nothing, and are omitted when the Exchange is unreachable. Exchange needs an API key on a team with Exchange access.'
-    ),
+    .describe(ALEXANDRIA_INSTRUCTIONS),
   categories: z
     .array(z.enum(['github', 'research', 'pdf', 'developer']))
     .optional()
@@ -990,17 +999,6 @@ const exchangeDiscoverParamsSchema = z.object({
 
 type ExchangeDiscoverArgs = z.infer<typeof exchangeDiscoverParamsSchema>;
 
-function searchSourcesIncludeExchange(sources: unknown): boolean {
-  return (
-    Array.isArray(sources) &&
-    sources.some(
-      (source) =>
-        source === 'exchange' ||
-        (source as { type?: unknown } | null)?.type === 'exchange'
-    )
-  );
-}
-
 function assertExchangeCredential(session?: SessionData): void {
   if (hasCredential(session)) return;
   const payload = {
@@ -1075,8 +1073,7 @@ async function relayExchangeError(run: () => Promise<any>): Promise<any> {
     )?.response;
     if (!response || response.status === 401) throw error;
     const data = response.data as
-      | { error?: unknown; code?: unknown; chargeId?: unknown }
-      | undefined;
+      { error?: unknown; code?: unknown; chargeId?: unknown } | undefined;
     const message =
       typeof data?.error === 'string'
         ? data.error
@@ -1129,13 +1126,17 @@ const openAiAppsChallengeToken = normalizeHeader(
   process.env.OPENAI_APPS_CHALLENGE_TOKEN
 );
 
-const FULL_PROFILE_INSTRUCTIONS = `Firecrawl provides web search, page retrieval, site URL discovery, multi-page collection, structured page data, monitoring, and asynchronous research. Match the requested operation to the tool boundary: firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema, firecrawl_map enumerates URLs under a site without retrieving their content, and firecrawl_agent starts multi-source research whose result is read with firecrawl_agent_status. For biomedical, life-science, clinical, or arXiv literature, the firecrawl_research_* tools search a paper index of abstracts and full text; firecrawl_search with categories: ["research"] is a website filter over ordinary web results and reaches different sources. For a programming question — code behaviour, a library or framework, an API contract, an error message, or a known bug — firecrawl_developer_search (or firecrawl_search with categories: ["developer"]) searches an index of repositories, GitHub issues, merged pull requests, READMEs, and curated documentation sites. Firecrawl Exchange is a catalogue of data providers: firecrawl_search with sources: [{type: "exchange"}] returns free capability hits in data.exchange (provider, capability, concept, cohorts, creditsCost), firecrawl_exchange_discover walks cohort, provider, and capability to read a capability's full contract including its options, and firecrawl_scrape with exchange: [{provider, capability, options}] executes up to ten capabilities and reports data.creditsCost. Exchange access needs an API key on a team with Exchange enabled. Provide only the required inputs and account for stated network or external side effects.`;
+const FULL_PROFILE_INSTRUCTIONS =
+  ALEXANDRIA_INSTRUCTIONS +
+  ` firecrawl_skills_resolve matches query mentions and page URLs, and firecrawl_skill reads a Markdown contract. Execution with firecrawl_scrape exchange uses requestId; reuse the returned ID for retries of the same payload, never a new ID to bypass a pending or uncertain 409. Firecrawl provides web search, page retrieval, site URL discovery, multi-page collection, structured page data, monitoring, and asynchronous research. Match the requested operation to the tool boundary: firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema, firecrawl_map enumerates URLs under a site without retrieving their content, and firecrawl_agent starts multi-source research whose result is read with firecrawl_agent_status. For biomedical, life-science, clinical, or arXiv literature, the firecrawl_research_* tools search a paper index of abstracts and full text; firecrawl_search with categories: ["research"] is a website filter over ordinary web results and reaches different sources. For a programming question — code behaviour, a library or framework, an API contract, an error message, or a known bug — firecrawl_developer_search (or firecrawl_search with categories: ["developer"]) searches an index of repositories, GitHub issues, merged pull requests, READMEs, and curated documentation sites. Firecrawl Exchange is a catalogue of data providers: firecrawl_search with sources: [{type: "alexandria"}] returns free catalogue entries in data.alexandria, firecrawl_exchange_discover walks cohort, provider, and capability to read a capability's full contract including its options, and firecrawl_scrape with exchange: [{provider, capability, options}] executes up to ten capabilities and reports data.creditsCost. Exchange access needs an API key on a team with Exchange enabled. Provide only the required inputs and account for stated network or external side effects.`;
 const KEYLESS_PROFILE_INSTRUCTIONS = `Hosted keyless sessions expose firecrawl_search, firecrawl_scrape, and firecrawl_parse with usage limits. firecrawl_search searches the web. For programming questions, firecrawl_search with categories: ["developer"] searches indexed repositories, GitHub issues, merged pull requests, repository READMEs, and curated documentation sites. For biomedical, life-science, clinical, or arXiv literature, firecrawl_search with categories: ["research"] filters ordinary web results to research-affiliated websites. firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema. firecrawl_parse processes supported local files through its two-phase upload flow. An Authorization bearer API key can provide higher usage limits and expose additional tools, subject to plan, deployment, and team policy, including firecrawl_map for site URL discovery, firecrawl_agent and firecrawl_agent_status for asynchronous multi-source research, firecrawl_research_* for paper-index and repository research, and firecrawl_exchange_discover with the Exchange options of firecrawl_search and firecrawl_scrape for catalogued data providers.`;
 
 // The search surface exposes web/developer/research search only. Its instructions
 // and tool copy describe just those tools and stay neutral about how a client
 // uses them.
-const SEARCH_PROFILE_INSTRUCTIONS = `Firecrawl provides web, developer, and research search. Use firecrawl_search to find relevant results across the web and specialized indexes. For a programming question, firecrawl_developer_search searches indexed repositories, GitHub issues, merged pull requests, READMEs, and curated documentation sites and returns the matched passages, and skills: "only" narrows it to agent-skill files; firecrawl_search with categories: ["developer"] reaches the same index beside ordinary web results, returning the hits in the web group rather than as passages and offering no skills filter. For a biomedical, life-science, clinical, or arXiv literature question, the firecrawl_research_* tools search the paper index, while categories: ["research"] on firecrawl_search filters ordinary web results to research-affiliated websites. Use the firecrawl_research_* tools to search academic and research literature, expand from anchor papers via the citation graph, and read full-text passages from a specific paper; firecrawl_research_search_github searches the research index's GitHub slice alongside that literature work, so a general programming question belongs in firecrawl_developer_search. All tools are read-only and return ranked results.`;
+const SEARCH_PROFILE_INSTRUCTIONS =
+  ALEXANDRIA_INSTRUCTIONS +
+  `Firecrawl provides web, developer, and research search. Use firecrawl_search to find relevant results across the web and specialized indexes. For a programming question, firecrawl_developer_search searches indexed repositories, GitHub issues, merged pull requests, READMEs, and curated documentation sites and returns the matched passages, and skills: "only" narrows it to agent-skill files; firecrawl_search with categories: ["developer"] reaches the same index beside ordinary web results, returning the hits in the web group rather than as passages and offering no skills filter. For a biomedical, life-science, clinical, or arXiv literature question, the firecrawl_research_* tools search the paper index, while categories: ["research"] on firecrawl_search filters ordinary web results to research-affiliated websites. Use the firecrawl_research_* tools to search academic and research literature, expand from anchor papers via the citation graph, and read full-text passages from a specific paper; firecrawl_research_search_github searches the research index's GitHub slice alongside that literature work, so a general programming question belongs in firecrawl_developer_search. All tools are read-only and return ranked results.`;
 
 // The exact set of tools the search surface exposes. Registration is filtered
 // against this set, so anything not listed here can never appear on that
@@ -1157,8 +1158,8 @@ function makeFullProfile(): ServerProfile {
     resourceName: account ? 'Firecrawl MCP Account' : 'Firecrawl MCP',
     instructions: account ? FULL_PROFILE_INSTRUCTIONS : KEYLESS_PROFILE_INSTRUCTIONS,
     resourceUrl: account
-      ? normalizeHeader(process.env.FIRECRAWL_MCP_RESOURCE_URL) ??
-        DEFAULT_MCP_OAUTH_RESOURCE_URL
+      ? (normalizeHeader(process.env.FIRECRAWL_MCP_RESOURCE_URL) ??
+        DEFAULT_MCP_OAUTH_RESOURCE_URL)
       : getMcpResourceUrl(),
     endpoint: account ? '/v2/mcp-oauth' : undefined,
     port: Number(process.env.PORT || 3000),
@@ -1175,7 +1176,9 @@ function searchOAuthOnly(): boolean {
   return process.env.FIRECRAWL_MCP_SEARCH_OAUTH_ONLY === 'true';
 }
 
-function makeSearchProfile({ primary = false }: { primary?: boolean } = {}): ServerProfile {
+function makeSearchProfile({
+  primary = false,
+}: { primary?: boolean } = {}): ServerProfile {
   const oauthOnly = searchOAuthOnly();
   if (primary && !oauthOnly) {
     throw new Error(
@@ -1292,7 +1295,9 @@ function connectionRecoveryPayload(params: {
   };
 }
 
-function invalidApiKeyRecoveryPayload(): Record<string, unknown> & { message: string } {
+function invalidApiKeyRecoveryPayload(): Record<string, unknown> & {
+  message: string;
+} {
   return connectionRecoveryPayload({
     code: 'CREDENTIAL_INVALID',
     authMode: 'api_key',
@@ -1300,7 +1305,9 @@ function invalidApiKeyRecoveryPayload(): Record<string, unknown> & { message: st
   });
 }
 
-function invalidOAuthRecoveryPayload(): Record<string, unknown> & { message: string } {
+function invalidOAuthRecoveryPayload(): Record<string, unknown> & {
+  message: string;
+} {
   return connectionRecoveryPayload({
     code: 'OAUTH_CONNECTION_INVALID',
     authMode: 'oauth',
@@ -1740,8 +1747,7 @@ function buildFormatsArray(
       result.push({ type: 'json', ...jsonOpts });
     } else if (fmt === 'query') {
       const queryOpts = args.queryOptions as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
       result.push({ type: 'query', ...queryOpts });
     } else if (fmt === 'screenshot' && args.screenshotOptions) {
       const ssOpts = args.screenshotOptions as Record<string, unknown>;
@@ -1897,6 +1903,13 @@ const scrapeParamsSchema = z.object({
 const scrapeToolParamsSchema = scrapeParamsSchema
   .extend({
     url: z.string().url().optional(),
+    requestId: z
+      .string()
+      .regex(/^[A-Za-z0-9._:-]{1,128}$/)
+      .optional()
+      .describe(
+        'Exchange execution ID. Reuse for retries of the identical payload; generated when omitted and returned with the result.'
+      ),
     exchange: exchangeCallsSchema
       .optional()
       .describe(
@@ -1911,9 +1924,14 @@ const scrapeToolParamsSchema = scrapeParamsSchema
     (args) =>
       !args.exchange ||
       Object.entries(args).every(
-        ([key, value]) => key === 'exchange' || value === undefined
+        ([key, value]) =>
+          key === 'exchange' || key === 'requestId' || value === undefined
       ),
     'exchange cannot be combined with url or other scrape options'
+  )
+  .refine(
+    (args) => !args.requestId || !!args.exchange,
+    'requestId applies to Exchange execution only'
   );
 
 const parseOptionParamsSchema = z.object({
@@ -2312,11 +2330,17 @@ Firecrawl may reuse recently indexed content instead of refetching the page, and
 
 Returns the selected content formats and page metadata.
 
-Exchange mode: pass \`exchange\` (1-10 items of \`{provider, capability, options}\`) instead of \`url\` to execute catalogued Firecrawl Exchange capabilities found through \`firecrawl_search\` sources \`exchange\` or \`firecrawl_exchange_discover\`. No other scrape option applies in this mode. Returns \`{ success, scrape_id, data: { exchange: [...], creditsCost } }\` where each item is a per-capability result (\`data\`, \`records\`, \`creditsCost\`) or an \`error\` with a code; \`data.creditsCost\` is the sum of the successful items. Exchange needs an API key on a team with Exchange access.
+Exchange mode: pass \`exchange\` (1-10 items of \`{provider, capability, options}\`) instead of \`url\` to execute catalogued Firecrawl Exchange capabilities found through \`firecrawl_search\` sources \`alexandria\` or \`firecrawl_exchange_discover\`. The optional requestId identifies one logical execution: reuse the returned ID for retries of the identical payload, never a new ID to bypass pending or uncertain execution. No other scrape option applies in this mode. Returns \`{ success, scrape_id, data: { exchange: [...], creditsCost } }\` where each item is a per-capability result (\`data\`, \`records\`, \`creditsCost\`) or an \`error\` with a code; \`data.creditsCost\` is the sum of the successful items. Exchange needs an API key on a team with Exchange access.
 `,
   parameters: scrapeToolParamsSchema,
   execute: async (args: unknown, { session, log }): Promise<string> => {
-    const { url, exchange, ...options } = args as {
+    const {
+      url,
+      exchange,
+      requestId: suppliedRequestId,
+      ...options
+    } = args as {
+      requestId?: string;
       url?: string;
       exchange?: z.infer<typeof exchangeCallsSchema>;
     } & Record<string, unknown>;
@@ -2326,10 +2350,29 @@ Exchange mode: pass \`exchange\` (1-10 items of \`{provider, capability, options
         count: exchange.length,
       });
       const client = getClient(session);
-      const httpRes = await relayExchangeError(() =>
-        (client as any).http.post('/v2/scrape', { exchange, origin: ORIGIN })
-      );
-      return asText(httpRes?.data ?? {});
+      const requestId = suppliedRequestId ?? randomUUID();
+      try {
+        const httpRes = await relayExchangeError(() =>
+          (client as any).http.post(
+            '/v2/scrape',
+            { exchange, origin: ORIGIN },
+            { headers: { 'x-request-id': requestId } }
+          )
+        );
+        return asText({ ...(httpRes?.data ?? {}), requestId });
+      } catch (error) {
+        if (error instanceof UserError) {
+          throw new UserError(
+            `${error.message} Request ID: ${requestId}. Reuse it only for the same payload.`,
+            { ...error.extras, requestId }
+          );
+        }
+        if ((error as any)?.response?.status === 401) throw error;
+        throw new UserError(
+          `${error instanceof Error ? error.message : String(error)} Request ID: ${requestId}. Retry only the same payload with this requestId; do not use a new ID to bypass an uncertain or pending execution.`,
+          { requestId }
+        );
+      }
     }
     const transformed = transformScrapeParams(
       options as Record<string, unknown>
@@ -2415,7 +2458,7 @@ For a programming question, add \`categories: ["developer"]\`. It searches an in
 
 Each web result is a title, URL, and description, not the page. Add \`scrapeOptions\` to attach page content in the same call; those fetches ignore \`maxAge\`, so use \`firecrawl_scrape\` when you need a live fetch. Returns source-type result groups and usage metadata. Authenticated responses can include an \`id\` for optional search feedback.
 
-\`sources: [{type: "exchange"}]\` adds Firecrawl Exchange capability hits in \`data.exchange\` (provider, capability, concept, cohorts, creditsCost, similarity). They are catalogue entries rather than documents, cost nothing, are excluded from \`creditsUsed\`, and are omitted when the Exchange is unreachable; \`sources: [{type: "exchange"}]\` alone skips the web engine. Read a hit's contract with \`firecrawl_exchange_discover\` and execute it with \`firecrawl_scrape\` \`exchange\`. Exchange needs an API key on a team with Exchange access.
+${ALEXANDRIA_INSTRUCTIONS}
 `,
   parameters: z
     .object({
@@ -2425,11 +2468,18 @@ Each web result is a title, URL, and description, not the page. Add \`scrapeOpti
         .partial()
         .optional(),
     })
-    .refine(searchDomainsAreExclusive, SEARCH_DOMAINS_CONFLICT_MESSAGE),
+    .refine(searchDomainsAreExclusive, SEARCH_DOMAINS_CONFLICT_MESSAGE)
+    .refine(
+      searchQueryIsValid,
+      'A query is required except for Alexandria-only browsing'
+    ),
   execute: async (args: unknown, { session, log }): Promise<string> => {
     const { query, ...opts } = args as Record<string, unknown>;
 
-    const searchOpts = { ...opts } as Record<string, unknown>;
+    const searchOpts = {
+      ...opts,
+      sources: normalizeSearchSources(opts.sources),
+    } as Record<string, unknown>;
     const includeDomains = searchOpts.includeDomains as string[] | undefined;
     const excludeDomains = searchOpts.excludeDomains as string[] | undefined;
     delete searchOpts.includeDomains;
@@ -2443,7 +2493,7 @@ Each web result is a title, URL, and description, not the page. Add \`scrapeOpti
 
     const cleaned = removeEmptyTopLevel(searchOpts);
     const searchQuery = buildSearchQueryWithDomains(
-      query as string,
+      (query as string | undefined) ?? '',
       includeDomains,
       excludeDomains
     );
@@ -2453,8 +2503,8 @@ Each web result is a title, URL, and description, not the page. Add \`scrapeOpti
       ...(cleaned as any),
       origin: ORIGIN,
     };
-    const exchangeSource = searchSourcesIncludeExchange(searchBody.sources);
-    if (exchangeSource) assertExchangeCredential(session);
+    const exchangeSource = hasAlexandria(searchBody.sources);
+    if (exchangeSource || searchBody.skills) assertExchangeCredential(session);
     if (isKeylessMode(session)) {
       const json = await keylessPost('/v2/search', searchBody, session);
       // Search feedback requires an authenticated account. Do not expose its
@@ -2488,7 +2538,7 @@ server.addTool({
   description: `
 Browse the Firecrawl Exchange catalogue of data providers and read capability contracts. Two modes: walk the catalogue by omitting \`q\` (no arguments lists cohorts; \`cohort\` lists its providers, with \`expand: "all"\` inlining their capabilities; \`cohort\` + \`provider\` lists that provider; \`cohort\` + \`provider\` + \`capability\` returns the full contract with \`options\`, \`returns\`, \`creditsCost\`, \`executable\`, and \`exampleQueries\`), or search semantically with \`q\` and optional \`limit\` on the index route, which returns \`capabilities\` (address, provider, cohorts, concept, creditsCost, similarity) without their contracts.
 
-Semantic hits and \`firecrawl_search\` \`data.exchange\` hits carry no option schema, so walk to the capability address before executing it with \`firecrawl_scrape\` \`exchange\`. Discovery costs nothing. Exchange needs an API key on a team with Exchange access; a 501 semantic_not_configured means the deployment has no semantic index.
+Legacy semantic hits carry no option schema, so walk to the capability address before executing it with \`firecrawl_scrape\` \`exchange\`. Discovery costs nothing. Exchange needs an API key on a team with Exchange access; a 501 semantic_not_configured means the deployment has no semantic index.
 `,
   parameters: exchangeDiscoverParamsSchema,
   execute: async (args: unknown, { session, log }): Promise<string> => {
@@ -2500,6 +2550,72 @@ Semantic hits and \`firecrawl_search\` \`data.exchange\` hits carry no option sc
       (client as any).http.get(pathName, ORIGIN_HEADERS)
     );
     return asText(httpRes?.data ?? {});
+  },
+});
+
+server.addTool({
+  name: 'firecrawl_skills_resolve',
+  annotations: {
+    title: 'Find contextual tools',
+    readOnlyHint: true,
+    openWorldHint: false,
+    destructiveHint: false,
+  },
+  description:
+    'Find accessible tools mapped to query mentions or URLs from search and scrape. Uses provider-configured mappings, including podcast providers. Returns skill IDs; read their contracts with firecrawl_skill. Free catalogue lookup; executes no provider.',
+  parameters: z
+    .object({
+      urls: z.array(z.string().url()).max(100).default([]),
+      query: z.string().min(1).max(2000).optional(),
+      context: z
+        .enum(['search', 'scrape'])
+        .optional()
+        .describe('Which provider placement rules to apply; defaults to search.'),
+    })
+    .refine(
+      (args) => args.urls.length > 0 || !!args.query,
+      'Provide URLs or a query'
+    ),
+  execute: async (args, { session }): Promise<string> => {
+    assertExchangeCredential(session);
+    const response = await relayExchangeError(() =>
+      (getClient(session) as any).http.post(
+        '/exchange/skills/resolve',
+        JSON.stringify(args),
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+    return asText(response?.data ?? {});
+  },
+});
+
+server.addTool({
+  name: 'firecrawl_skill',
+  annotations: {
+    title: 'Read a tool skill document',
+    readOnlyHint: true,
+    openWorldHint: false,
+    destructiveHint: false,
+  },
+  description:
+    'Read the Markdown contract for a skill ID returned by firecrawl_skills_resolve or search skills. Free catalogue lookup; executes no provider.',
+  parameters: z.object({
+    id: z
+      .string()
+      .min(1)
+      .refine((id) => id !== '.' && id !== '..', 'Invalid skill ID'),
+  }),
+  execute: async ({ id }, { session }): Promise<string> => {
+    assertExchangeCredential(session);
+    const response = await relayExchangeError(() =>
+      (getClient(session) as any).http.get(
+        `/exchange/skills/${encodeURIComponent(id)}/SKILL.md`,
+        ORIGIN_HEADERS
+      )
+    );
+    return typeof response?.data === 'string'
+      ? response.data
+      : asText(response?.data ?? {});
   },
 });
 
@@ -3484,7 +3600,11 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
       // way to request page-content fetching, and an unexpected field is an
       // error rather than being silently dropped.
       .strict()
-      .refine(searchDomainsAreExclusive, SEARCH_DOMAINS_CONFLICT_MESSAGE),
+      .refine(searchDomainsAreExclusive, SEARCH_DOMAINS_CONFLICT_MESSAGE)
+      .refine(
+        searchQueryIsValid,
+        'A query is required except for Alexandria-only browsing'
+      ),
     execute: async (args: unknown, { session, log }): Promise<string> => {
       const {
         query,
@@ -3498,8 +3618,10 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
         categories,
         highlights,
         enterprise,
+        skills,
       } = args as {
-        query: string;
+        query?: string;
+        skills?: boolean;
         includeDomains?: string[];
         excludeDomains?: string[];
         limit?: number;
@@ -3513,7 +3635,7 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
       };
 
       const searchQuery = buildSearchQueryWithDomains(
-        query,
+        query ?? '',
         includeDomains,
         excludeDomains
       );
@@ -3527,17 +3649,19 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
           tbs,
           filter,
           location,
-          sources,
+          sources: normalizeSearchSources(sources),
           categories,
           highlights,
           enterprise,
+          skills,
         }),
         origin: ORIGIN,
       };
 
       log.info('Searching', { query: searchQuery });
-      const exchangeSource = searchSourcesIncludeExchange(sources);
-      if (exchangeSource) assertExchangeCredential(session);
+      const exchangeSource = hasAlexandria(sources);
+      if (exchangeSource || searchBody.skills)
+        assertExchangeCredential(session);
       const client = getClientFn(session);
       const postSearch = () =>
         (client as any).http.post('/v2/search', searchBody);

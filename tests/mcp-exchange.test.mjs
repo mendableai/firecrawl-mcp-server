@@ -121,7 +121,30 @@ async function startFakeExchangeApi(options = {}) {
       return json(200, { eligible: keylessEligible });
     }
 
+    if (url.pathname === '/exchange/skills/resolve')
+      return json(200, { skills: [{ id: 'particle-podcasts' }] });
+    if (url.pathname === '/exchange/skills/particle-podcasts/SKILL.md') {
+      res.writeHead(200, { 'content-type': 'text/markdown' });
+      return res.end('# Particle podcasts');
+    }
     if (req.method === 'POST' && url.pathname === '/v2/search') {
+      if (parsedBody.sources?.some((source) => source.level === 'tools'))
+        return json(200, {
+          success: true,
+          data: {
+            alexandria: {
+              status: 'available',
+              items: [
+                {
+                  id: 'particle/podcasts/search',
+                  next: { sources: parsedBody.sources },
+                },
+              ],
+              total: 20,
+              nextCursor: 'page-2',
+            },
+          },
+        });
       return json(200, {
         success: true,
         data: { exchange: [CAPABILITY_HIT] },
@@ -362,24 +385,33 @@ test('exchange tool metadata: discover is listed, scrape url is optional, langua
   assert.match(scrape.description, /Exchange mode.*data\.creditsCost/is);
 
   const search = byName.get('firecrawl_search');
-  // A source is either a bare name ("exchange") or {type: "exchange"}, so the
-  // acceptance call sources: ['exchange'] passes schema validation.
   const sourceForms = search.inputSchema.properties.sources.items.anyOf;
-  assert.equal(sourceForms.length, 2);
-  assert.deepEqual(sourceForms.find((form) => form.type === 'string').enum, [
-    'web',
-    'images',
-    'news',
-    'exchange',
+  assert.ok(
+    sourceForms
+      .find((form) => form.type === 'string')
+      .enum.includes('alexandria')
+  );
+  const catalogue = sourceForms.find((form) => form.properties?.level);
+  assert.deepEqual(catalogue.properties.level.enum, [
+    'categories',
+    'providers',
+    'groups',
+    'tools',
   ]);
-  assert.deepEqual(
-    sourceForms.find((form) => form.type === 'object').properties.type.enum,
-    ['web', 'images', 'news', 'exchange']
-  );
-  assert.match(
-    search.description,
-    /sources: \[\{type: "exchange"\}\].*data\.exchange/is
-  );
+  for (const field of [
+    'mode',
+    'categories',
+    'providers',
+    'domains',
+    'groups',
+    'capabilities',
+    'expand',
+    'languages',
+    'limit',
+    'cursor',
+  ])
+    assert.ok(catalogue.properties[field], field);
+  assert.match(search.description, /data\.alexandria/);
   assert.match(
     init.instructions,
     /firecrawl_exchange_discover with the Exchange options of firecrawl_search and firecrawl_scrape/i
@@ -415,7 +447,7 @@ test('firecrawl_search forwards the exchange source and passes data.exchange and
   );
   assert.deepEqual(api.requests[0].body, {
     query: 'nvidia balance sheet',
-    sources: [{ type: 'web' }, { type: 'exchange' }],
+    sources: [{ type: 'web' }, { type: 'alexandria' }],
     limit: 5,
     origin: 'mcp-fastmcp',
   });
@@ -445,7 +477,13 @@ test('firecrawl_search forwards bare-string sources verbatim, including the acce
     assert.equal(request.url, '/v2/search');
     assert.deepEqual(request.body, {
       query: 'nvidia balance sheet',
-      sources,
+      sources: sources.map((source) =>
+        source === 'exchange'
+          ? 'alexandria'
+          : source?.type === 'exchange'
+            ? { ...source, type: 'alexandria' }
+            : source
+      ),
       origin: 'mcp-fastmcp',
     });
     assert.deepEqual(toolText(result).data.exchange, [CAPABILITY_HIT]);
@@ -492,6 +530,18 @@ test('firecrawl_scrape with exchange posts the v2 batch and returns the envelope
   ]);
 
   const payload = toolText(result);
+  assert.equal(payload.requestId, api.requests[0].headers['x-request-id']);
+  assert.match(payload.requestId, /^[A-Za-z0-9._:-]{1,128}$/);
+  const retry = await client.request('tools/call', {
+    name: 'firecrawl_scrape',
+    arguments: {
+      exchange: api.requests[0].body.exchange,
+      requestId: payload.requestId,
+    },
+  });
+  assert.equal(toolText(retry).requestId, payload.requestId);
+  assert.equal(api.requests[1].headers['x-request-id'], payload.requestId);
+  assert.deepEqual(api.requests[1].body, api.requests[0].body);
   assert.equal(payload.success, true);
   assert.equal(payload.scrape_id, '11111111-1111-4111-8111-111111111111');
   assert.equal(payload.data.creditsCost, 1);
@@ -530,10 +580,7 @@ test('firecrawl_scrape relays an Exchange 403 as an explanatory tool error', asy
   });
   assert.equal(api.requests.length, 1);
   assert.equal(result.transportError, undefined, 'a 403 must surface in-band');
-  assert.equal(
-    result.content[0].text,
-    'Exchange is not enabled for this team.'
-  );
+  assert.match(result.content[0].text, /Exchange is not enabled for this team/);
   assert.equal(result.structuredContent.status, 403);
   assert.equal(result.structuredContent.code, 'exchange_error');
 });
@@ -549,15 +596,16 @@ test('firecrawl_scrape relays a reserved 409 billing error with its code and cha
   });
   assert.equal(api.requests.length, 1);
   assert.equal(result.transportError, undefined, 'a 409 must surface in-band');
-  assert.equal(
+  assert.match(
     result.content[0].text,
-    'A request with this x-request-id is still in flight.'
+    /A request with this x-request-id is still in flight/
   );
   assert.deepEqual(result.structuredContent, {
     code: 'request_in_flight',
     status: 409,
     message: 'A request with this x-request-id is still in flight.',
     chargeId: 'chg_0123456789',
+    requestId: api.requests[0].headers['x-request-id'],
   });
 });
 
@@ -846,4 +894,47 @@ test('hosted keyless sessions never reach the Exchange; an API key header does',
     exchange: [EXCHANGE_CALL],
     origin: 'mcp-fastmcp',
   });
+});
+
+test('Alexandria preserves disclosure filters and resolves contextual skill contracts', async (t) => {
+  const { api, client } = await startStdioWithApi(t);
+  const source = {
+    type: 'alexandria',
+    mode: 'browse',
+    providers: ['particle'],
+    categories: ['podcasts'],
+    domains: ['podcasts.apple.com'],
+    groups: ['podcasts'],
+    capabilities: ['podcasts/search'],
+    level: 'tools',
+    expand: ['options', 'response', 'examples'],
+    languages: ['javascript', 'python', 'curl'],
+    limit: 5,
+    cursor: 'page-1',
+  };
+  const response = await client.request('tools/call', {
+    name: 'firecrawl_search',
+    arguments: { sources: [source] },
+  });
+  assert.notEqual(response.isError, true);
+  assert.deepEqual(api.requests[0].body.sources, [source]);
+  assert.equal(toolText(response).data.alexandria.total, 20);
+  assert.deepEqual(toolText(response).data.alexandria.items[0].next, {
+    sources: [source],
+  });
+  const match = await client.request('tools/call', {
+    name: 'firecrawl_skills_resolve',
+    arguments: { urls: ['https://podcasts.apple.com/us/'], query: 'spotify', context: 'scrape' },
+  });
+  assert.deepEqual(api.requests[1].body, {
+    urls: ['https://podcasts.apple.com/us/'],
+    query: 'spotify',
+    context: 'scrape',
+  });
+  assert.equal(toolText(match).skills[0].id, 'particle-podcasts');
+  const skill = await client.request('tools/call', {
+    name: 'firecrawl_skill',
+    arguments: { id: 'particle-podcasts' },
+  });
+  assert.equal(skill.content[0].text, '# Particle podcasts');
 });
