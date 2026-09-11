@@ -15,7 +15,6 @@ const SEARCH_TOOLS = [
   'firecrawl_research_inspect_paper',
   'firecrawl_research_related_papers',
   'firecrawl_research_read_paper',
-  'firecrawl_research_search_github',
 ];
 
 // A representative sample of the full-surface tools that must NOT leak here.
@@ -31,6 +30,7 @@ const EXCLUDED_TOOLS = [
   'firecrawl_monitor_create',
   'firecrawl_search_feedback',
   'firecrawl_feedback',
+  'firecrawl_research_search_github',
 ];
 
 const SEARCH_ENDPOINT = '/v2/mcp-search';
@@ -342,7 +342,7 @@ async function listTools(port, endpoint, headers) {
   return tools.map((tool) => tool.name);
 }
 
-test('search surface lists exactly the seven read-only tools', async (t) => {
+test('search surface lists exactly the six read-only tools', async (t) => {
   const { searchPort, getStderr } = await startHostedServer(t);
 
   const tools = await listToolDefinitions(searchPort, SEARCH_ENDPOINT, {
@@ -366,6 +366,38 @@ test('search surface lists exactly the seven read-only tools', async (t) => {
     assert.equal(names.includes(excluded), false, `${excluded} must not appear`);
   }
   assert.equal(getStderr().includes('TypeError'), false, getStderr());
+});
+
+test('the hidden github tool answers cached callers with a DEPRECATED_TOOL payload', async (t) => {
+  const backend = await startFakeBackend();
+  t.after(() => backend.close());
+  const { searchPort } = await startHostedServer(t, {
+    FIRECRAWL_API_URL: backend.url,
+  });
+
+  // Not on tools/list (EXCLUDED_TOOLS covers that), but a session that cached
+  // the old list must get a pointer to the replacement, not unknown tool.
+  const res = await jsonRpc(searchPort, SEARCH_ENDPOINT, {
+    id: 9,
+    method: 'tools/call',
+    params: {
+      arguments: { query: 'milvus hybrid search' },
+      name: 'firecrawl_research_search_github',
+    },
+    headers: { 'x-api-key': 'fc-test' },
+  });
+  const message = parseSseJson(await res.text());
+  assert.equal(message.result?.isError, true, JSON.stringify(message));
+  assert.equal(message.result.structuredContent.code, 'DEPRECATED_TOOL');
+  assert.equal(
+    message.result.structuredContent.replacement.name,
+    'firecrawl_developer_search'
+  );
+  assert.equal(
+    backend.requests.some((r) => r.url.includes('/research/github')),
+    false,
+    'must not reach the upstream endpoint'
+  );
 });
 
 test('search surface does not expose an excluded tool', async (t) => {
@@ -787,7 +819,7 @@ test('full surface still exposes its complete tool set alongside the search surf
   assert.equal(prm.status, 404);
 });
 
-test('primary search profile is OAuth-only, seven-tool frozen, and ready without keyless configuration', async (t) => {
+test('primary search profile is OAuth-only, six-tool frozen, and ready without keyless configuration', async (t) => {
   const { backendRequests, port, issuerUrl } = await startPrimarySearchServer(t);
 
   const ready = await fetch(`http://127.0.0.1:${port}/ready`);

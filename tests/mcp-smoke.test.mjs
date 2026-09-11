@@ -878,7 +878,7 @@ test('stdio transport initializes and lists Firecrawl tools', async (t) => {
   );
   assert.match(
     init.instructions,
-    /Authorization bearer API key.*firecrawl_agent and firecrawl_agent_status for asynchronous multi-source research/is
+    /Authorization bearer API key.*firecrawl_agent and firecrawl_agent_status for multi-source research that returns structured data when the URLs are not known/is
   );
   assert.match(
     byName.get('firecrawl_scrape').description,
