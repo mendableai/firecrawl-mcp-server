@@ -1015,7 +1015,7 @@ test('local keyless stdio keeps profile guidance keyless-scoped and exposes shar
   const apiKeyGuidance = init.instructions.slice(apiKeyBoundaryIndex);
   assert.match(
     keylessGuidance,
-    /Hosted keyless sessions expose firecrawl_search, firecrawl_scrape, and firecrawl_parse with usage limits/i
+    /Keyless sessions expose firecrawl_search, firecrawl_scrape, and firecrawl_parse with usage limits/i
   );
   assert.match(
     keylessGuidance,
@@ -3227,24 +3227,73 @@ test('local Parse preserves job evidence on success and failure and respects inv
 });
 
 
-test('local Parse still requires an explicit API URL', async (t) => {
-  const child = spawnServer({
-    FIRECRAWL_API_KEY: '',
-    FIRECRAWL_API_URL: '',
-    CLOUD_SERVICE: '',
-  });
-  t.after(() => stopChild(child));
-  const client = new StdioMcpClient(child);
-  await client.request('initialize', {
-    capabilities: {},
-    clientInfo: { name: 'parse-configuration-test', version: '0.0.0' },
-    protocolVersion: '2025-06-18',
-  });
-  client.notify('notifications/initialized');
-  const result = await client.request('tools/call', {
-    name: 'firecrawl_parse',
-    arguments: { filePath: '/not-read-without-an-api-url.html' },
-  });
-  assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /requires FIRECRAWL_API_URL/);
+test('local Parse defaults to the cloud API with and without credentials', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'parse-default-api-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const filePath = join(directory, 'fixture.html');
+  await writeFile(filePath, '<h1>Parsed fixture</h1>');
+  for (const authenticated of [false, true]) {
+    await t.test(`authenticated ${authenticated}`, async (t) => {
+      const backend = await startFakeFirecrawlBackend();
+      t.after(() => backend.close());
+      const preloadPath = join(directory, `fetch-${authenticated}.mjs`);
+      await writeFile(
+        preloadPath,
+        `
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = (url, init) => {
+          if (url !== 'https://api.firecrawl.dev/v2/parse') {
+            throw new Error('Unexpected outbound URL');
+          }
+          return originalFetch(${JSON.stringify(`${backend.url}/v2/parse`)}, {
+            ...init,
+            headers: { ...init.headers, 'x-test-original-url': url },
+          });
+        };
+      `
+      );
+      const child = spawnServer({
+        FIRECRAWL_API_KEY: authenticated ? 'fc-parse-test' : '',
+        FIRECRAWL_OAUTH_TOKEN: '',
+        FIRECRAWL_API_URL: '',
+        CLOUD_SERVICE: '',
+        NODE_OPTIONS: `--import=${preloadPath}`,
+      });
+      t.after(() => stopChild(child));
+      const client = new StdioMcpClient(child);
+      await client.request('initialize', {
+        capabilities: {},
+        clientInfo: { name: 'parse-default-api-test', version: '0.0.0' },
+        protocolVersion: '2025-06-18',
+      });
+      client.notify('notifications/initialized');
+      const tools = await client.request('tools/list');
+      const parse = tools.tools.find((tool) => tool.name === 'firecrawl_parse');
+      assert.ok(parse);
+      assert.match(
+        parse.description,
+        /uploads it.*Firecrawl cloud API when unset/
+      );
+      const result = await client.request('tools/call', {
+        name: 'firecrawl_parse',
+        arguments: { filePath, formats: ['markdown'] },
+      });
+      assert.notEqual(result.isError, true);
+      assert.equal(
+        JSON.parse(result.content[0].text).data.markdown,
+        '# Parsed fixture'
+      );
+      assert.equal(backend.requests.length, 1);
+      const call = backend.requests[0];
+      assert.equal(
+        call.headers['x-test-original-url'],
+        'https://api.firecrawl.dev/v2/parse'
+      );
+      assert.equal(
+        call.headers.authorization,
+        authenticated ? 'Bearer fc-parse-test' : undefined
+      );
+      assert.match(call.raw, /Parsed fixture/);
+    });
+  }
 });

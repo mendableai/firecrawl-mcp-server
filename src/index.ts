@@ -657,13 +657,12 @@ async function authenticateRequest(
     !process.env.FIRECRAWL_API_KEY &&
     !process.env.FIRECRAWL_API_URL
   ) {
-    // No credential and no self-hosted URL: run in keyless mode. scrape and
-    // search work for free (rate-limited per IP) against the Firecrawl cloud;
-    // every other tool needs an API key and will return Unauthorized.
+    // Without credentials or a custom API URL, use the cloud keyless tools.
     console.error(
-      'No FIRECRAWL_API_KEY or FIRECRAWL_API_URL set — running in keyless mode. ' +
-        'firecrawl_scrape and firecrawl_search are free (rate-limited per IP) against the Firecrawl cloud; ' +
-        'other tools require an API key (get one free at https://firecrawl.dev).'
+      'No FIRECRAWL_API_KEY or FIRECRAWL_API_URL set. Running in keyless mode. ' +
+        'firecrawl_scrape, firecrawl_search, and firecrawl_parse use the Firecrawl cloud with usage limits. ' +
+        'Local Parse uploads the requested file to the API. Optional firecrawl_feedback is available when enabled. ' +
+        'Other tools require an API key (get one free at https://firecrawl.dev).'
     );
   }
 
@@ -954,7 +953,7 @@ const openAiAppsChallengeToken = normalizeHeader(
 );
 
 const FULL_PROFILE_INSTRUCTIONS = `Firecrawl provides web search, page retrieval, site URL discovery, multi-page collection, structured page data, monitoring, and multi-source research that returns structured data. Match the requested operation to the tool boundary: firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema, firecrawl_map enumerates URLs under a site without retrieving their content, and firecrawl_agent runs multi-source research and returns structured data when the URLs are not known or the answer spans several sites (an entity plus its fields, a list, a dataset); its result is read with firecrawl_agent_status. For biomedical, life-science, clinical, or arXiv literature, the firecrawl_research_* tools search a paper index of abstracts and full text; firecrawl_search with categories: ["research"] is a website filter over ordinary web results and reaches different sources. For a programming question — code behaviour, a library or framework, an API contract, an error message, or a known bug — firecrawl_developer_search (or firecrawl_search with categories: ["developer"]) searches an index of repositories, GitHub issues, merged pull requests, READMEs, and curated documentation sites. Provide only the required inputs and account for stated network or external side effects.`;
-const KEYLESS_PROFILE_INSTRUCTIONS = `Hosted keyless sessions expose firecrawl_search, firecrawl_scrape, and firecrawl_parse with usage limits. firecrawl_feedback accepts optional evidence about those jobs without consuming operation quota. firecrawl_search searches the web. For programming questions, firecrawl_search with categories: ["developer"] searches indexed repositories, GitHub issues, merged pull requests, repository READMEs, and curated documentation sites. For biomedical, life-science, clinical, or arXiv literature, firecrawl_search with categories: ["research"] filters ordinary web results to research-affiliated websites. firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema. firecrawl_parse processes supported local files through its two-phase upload flow. An Authorization bearer API key can provide higher usage limits and expose additional tools, subject to plan, deployment, and team policy, including firecrawl_map for site URL discovery, firecrawl_agent and firecrawl_agent_status for multi-source research that returns structured data when the URLs are not known, and firecrawl_research_* for paper-index and repository research.`;
+const KEYLESS_PROFILE_INSTRUCTIONS = `Keyless sessions expose firecrawl_search, firecrawl_scrape, and firecrawl_parse with usage limits. firecrawl_feedback accepts optional evidence about those jobs without consuming operation quota. firecrawl_search searches the web. For programming questions, firecrawl_search with categories: ["developer"] searches indexed repositories, GitHub issues, merged pull requests, repository READMEs, and curated documentation sites. For biomedical, life-science, clinical, or arXiv literature, firecrawl_search with categories: ["research"] filters ordinary web results to research-affiliated websites. firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema. firecrawl_parse uploads local file bytes to the API in local MCP and uses a two-phase upload flow in hosted MCP. An Authorization bearer API key can provide higher usage limits and expose additional tools, subject to plan, deployment, and team policy, including firecrawl_map for site URL discovery, firecrawl_agent and firecrawl_agent_status for multi-source research that returns structured data when the URLs are not known, and firecrawl_research_* for paper-index and repository research.`;
 
 // The search surface exposes web/developer/research search only. Its instructions
 // and tool copy describe just those tools and stay neutral about how a client
@@ -3181,7 +3180,7 @@ Optional feedback is available through \`firecrawl_feedback\` using the returned
 
 Parse one supported document into markdown, HTML, links, summary, targeted answers, or JSON matching a schema. Supported inputs include common HTML, PDF, Word, RTF, OpenDocument, and spreadsheet files; PDF parsing can be bounded with \`pdfOptions.maxPages\`.
 
-Local MCP reads \`filePath\` from the server filesystem. Hosted MCP uses two calls: first provide \`filePath\` to receive upload instructions, upload locally, then call again with the returned \`uploadRef\`; do not send both fields together. Remote web URLs belong in \`firecrawl_scrape\`.
+Local MCP reads \`filePath\` from the server filesystem and uploads it to the configured \`FIRECRAWL_API_URL\`, or the Firecrawl cloud API when unset. Parsing happens on that API server. Hosted MCP uses two calls: first provide \`filePath\` to receive upload instructions, upload locally, then call again with the returned \`uploadRef\`; do not send both fields together. Remote web URLs belong in \`firecrawl_scrape\`.
 
 Set \`redactPII\` to request redaction of personally identifiable information in the returned content. \`zeroDataRetention\` requires an eligible authenticated account; omit it for anonymous keyless use. Returns upload instructions for hosted phase one or parsed document content for the final call.
 `,
@@ -3191,12 +3190,7 @@ Set \`redactPII\` to request redaction of personally identifiable information in
       return executeHostedParse(args as ParseToolArgs, session, log);
     }
 
-    const apiUrl = process.env.FIRECRAWL_API_URL;
-    if (!apiUrl) {
-      throw new Error(
-        'firecrawl_parse requires FIRECRAWL_API_URL to be set to a self-hosted Firecrawl API instance.'
-      );
-    }
+    const apiUrl = resolveApiBaseUrl();
 
     const {
       filePath,
