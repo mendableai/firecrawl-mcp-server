@@ -334,6 +334,7 @@ async function startFakeFirecrawlBackend(options = {}) {
     keylessEligible = false,
     keylessEligibilityResponse,
     searchResponse,
+    scrapeResponse,
     feedbackResponse,
     parseResponse,
   } = options;
@@ -440,6 +441,12 @@ async function startFakeFirecrawlBackend(options = {}) {
           success: true,
         })
       );
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/v2/scrape' && scrapeResponse) {
+      res.writeHead(scrapeResponse.status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(scrapeResponse.body));
       return;
     }
 
@@ -3228,6 +3235,7 @@ test('local Parse preserves job evidence on success and failure and respects inv
         assert.equal(returnedMetadata.jobId, metadata.jobId);
         assert.equal(Boolean(returnedMetadata.feedback), !disabled);
         assert.equal(result.isError === true, status !== 200);
+        if (status !== 200) assert.equal(result.content[0].text, 'Parsing failed');
         const call = backend.requests.find((req) => req.url === '/v2/parse');
         assert.equal(call.headers.authorization, undefined);
         assert.equal(
@@ -3312,3 +3320,32 @@ test('local Parse defaults to the cloud API with and without credentials', async
     });
   }
 });
+
+for (const endpoint of ['search', 'scrape', 'parse']) {
+  for (const disabled of [false, true]) {
+    test(`authenticated ${endpoint} preserves references and honors feedback opt-out: ${disabled}`, async (t) => {
+      const metadata = { jobId: '00000000-0000-4000-8000-000000000000', feedback: { endpoint, message: 'Optional feedback.' } };
+      const body = endpoint === 'search'
+        ? { success: true, id: metadata.jobId, data: { web: [] }, metadata }
+        : { success: true, data: { markdown: 'Observed content', metadata } };
+      const backend = await startFakeFirecrawlBackend({ [`${endpoint}Response`]: { status: 200, body } });
+      t.after(() => backend.close());
+      const port = await getFreePort();
+      const child = spawnServer({ CLOUD_SERVICE: 'true', FIRECRAWL_NO_ENDPOINT_FEEDBACK: disabled ? 'true' : '',
+        FASTMCP_ENDPOINT: '/v2/mcp', FIRECRAWL_API_URL: backend.url, FIRECRAWL_OAUTH_ISSUER: backend.url,
+        HTTP_STREAMABLE_SERVER: 'true', PORT: String(port), KEYLESS_PROXY_SECRET: 'feedback-test-secret' });
+      t.after(() => stopChild(child));
+      await waitForHealth(port, child);
+      const response = await httpToolCall(port, { id: 'authenticated-feedback-preference', headers: { Authorization: 'Bearer fc-feedback-test' }, params: {
+        name: `firecrawl_${endpoint}`, arguments: endpoint === 'search' ? { query: 'retry behavior' } : endpoint === 'scrape' ? { url: 'https://example.com/' } : { uploadRef: 'test-upload-ref' },
+      } });
+      const result = parseSseJson(await response.text()).result;
+      assert.notEqual(result.isError, true);
+      const payload = JSON.parse(result.content[0].text);
+      assert.deepEqual(payload.metadata ?? payload.data?.metadata, disabled ? { jobId: metadata.jobId } : metadata);
+      const call = backend.requests.find(req => req.url === `/v2/${endpoint}`);
+      assert.equal(call.headers.authorization, 'Bearer fc-feedback-test');
+      assert.equal(call.headers['x-firecrawl-no-feedback'], disabled ? '1' : undefined);
+    });
+  }
+}

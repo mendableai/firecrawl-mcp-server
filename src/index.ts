@@ -1483,7 +1483,12 @@ function createClient(apiKey?: string): FirecrawlApp {
     config.apiKey = apiKey;
   }
 
-  return new FirecrawlApp(config);
+  const client = new FirecrawlApp(config);
+  Object.assign(
+    (client as any).http.instance.defaults.headers.common,
+    feedbackPreferenceHeaders()
+  );
+  return client;
 }
 
 const ORIGIN = 'mcp-fastmcp';
@@ -1912,6 +1917,7 @@ async function apiPostJson(
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
+      ...feedbackPreferenceHeaders(),
     },
     body: JSON.stringify(body),
   });
@@ -1930,7 +1936,7 @@ async function apiPostJson(
       response.status
     );
   }
-  return parsed;
+  return filterFeedbackInvitation(parsed);
 }
 
 async function apiPostJsonForSession(
@@ -2147,7 +2153,7 @@ Returns the selected content formats and page metadata.
       ...cleaned,
       origin: ORIGIN,
     } as any);
-    return asText(res);
+    return asText(filterFeedbackInvitation(res));
   },
 });
 
@@ -2253,7 +2259,7 @@ Each web result is a title, URL, and description, not the page. Add \`scrapeOpti
     // supports the optional authenticated `firecrawl_search_feedback` workflow.
     const client = getClient(session);
     const httpRes = await (client as any).http.post('/v2/search', searchBody);
-    return asText(httpRes?.data ?? {});
+    return asText(filterFeedbackInvitation(httpRes?.data ?? {}));
   },
 });
 
@@ -2407,7 +2413,10 @@ async function keylessPost(
       throw new UserError(String(payload.message), payload);
     }
     if (json?.metadata?.jobId) {
-      throw new UserError(asText(json), json);
+      throw new UserError(
+        json.error || `Firecrawl request failed (HTTP ${response.status})`,
+        json
+      );
     }
     throw new Error(
       json?.error || `Firecrawl request failed (HTTP ${response.status})`
@@ -3258,7 +3267,10 @@ Set \`redactPII\` to request redaction of personally identifiable information in
     }
     if (!response.ok) {
       if (result?.metadata?.jobId) {
-        throw new UserError(asText(result), result);
+        throw new UserError(
+          result.error || `Parse request failed (HTTP ${response.status})`,
+          result
+        );
       }
       throw new Error(
         `Parse request failed with status ${response.status}: ${responseText}`
@@ -3351,7 +3363,7 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
       log.info('Searching', { query: searchQuery });
       const client = getClientFn(session);
       const httpRes = await (client as any).http.post('/v2/search', searchBody);
-      return asText(httpRes?.data ?? {});
+      return asText(filterFeedbackInvitation(httpRes?.data ?? {}));
     },
   });
 }
