@@ -2701,7 +2701,7 @@ Submit optional quality feedback for a search, scrape, parse, or map job. Authen
 
 Keyless Search, Scrape, and Parse feedback requires task, assessment, rating, and 1-20 observations. Each observation includes kind, detail, and basis: output, source_comparison, or expectation. A source_comparison also requires comparison: {reference, detail}. Search kinds are useful or irrelevant with source (web, images, news) and one-based position within that delivered group, or missing with topic and optional knownSources URLs. Scrape kinds are correct, missing, incorrect, or failure, with optional location and already-observed retryOutcome. Parse kinds are correct, text, table, layout, or completeness, with optional location.
 
-Use only evidence already available. Do not guess missing content, diagnose causes, or investigate further. A failed scrape can be reported with its jobId and observed failure. One accepted submission per keyless identity, category, and UTC day, shared across clients. Feedback remains available after operation quota exhaustion and does not restore quota. Returns submission status and feedback ID. Authenticated feedback retains its existing fields.
+Use only evidence already available. Do not guess missing content, diagnose causes, or investigate further. A failed scrape can be reported with its jobId and observed failure. One accepted submission per keyless identity per UTC day, shared across Search, Scrape, Parse, and all clients. Feedback remains available after operation quota exhaustion and does not restore quota. Returns submission status and feedback ID. Authenticated feedback retains its existing fields.
 `,
     parameters: z.object({
       endpoint: z.enum(['search', 'scrape', 'parse', 'map']),

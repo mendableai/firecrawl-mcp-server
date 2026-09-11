@@ -561,9 +561,10 @@ report correct output or text, table, layout, or completeness issues. The tool
 description lists the complete fields. Use only available evidence and keep
 unverified expectations distinct from source comparisons.
 
-Keyless submissions are limited to one per identity, category, and UTC day across
-clients, with references valid for 24 hours. Feedback remains available after
-operation allowance is exhausted and does not consume or restore that allowance.
+Keyless submissions are limited to one per identity per UTC day across Search,
+Scrape, Parse, and all clients, with references valid for 24 hours. Feedback remains
+available after operation allowance is exhausted and does not consume or restore
+that allowance.
 
 Authenticated callers retain the existing issue/note fields for Search, Scrape,
 Parse, and Map. For authenticated Search-specific feedback, continue using
