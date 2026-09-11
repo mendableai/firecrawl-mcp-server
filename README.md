@@ -498,7 +498,7 @@ For scientific papers, see [Research Tools](#12-research-tools-firecrawl_researc
 
 **Returns:**
 
-- Array of search results (with optional scraped content), plus an `id` field. Pass that `id` to `firecrawl_search_feedback` after you've used the results to refund 1 credit (search costs 2) and improve search quality.
+- Array of search results with optional scraped content, plus an `id` field. Keyless callers can use the returned job reference and optional invitation with `firecrawl_feedback`. Authenticated callers can continue using `firecrawl_search_feedback` with its existing fields and policy.
 
 **Prompt Example:**
 
@@ -506,9 +506,9 @@ For scientific papers, see [Research Tools](#12-research-tools-firecrawl_researc
 
 ### 3b. Search Feedback Tool (`firecrawl_search_feedback`)
 
-Sends structured feedback on a previous `firecrawl_search` result. The first feedback per search id refunds 1 credit and improves Firecrawl's search quality. Idempotent per search id.
+This authenticated tool sends structured feedback on a previous `firecrawl_search` result. Its request fields, eligibility, and refund policy are unchanged. It is idempotent per search ID. Keyless callers must use `firecrawl_feedback`; this legacy tool does not accept keyless jobs.
 
-**Call this after every search you actually use** (or that didn't help). Bad/partial feedback with `missingContent` is just as valuable as good feedback.
+Feedback is optional. If submitting, use only observations already available after processing the results; no user interview or additional investigation is required.
 
 **Opt out:** set `FIRECRAWL_NO_SEARCH_FEEDBACK=1` (or `FIRECRAWL_DISABLE_SEARCH_FEEDBACK=1`) in the environment when starting the MCP server. The `firecrawl_search_feedback` tool will not be registered, so agents can't call it. Team admins can also disable feedback server-side; in that case the tool is registered but always returns `feedbackErrorCode: "TEAM_OPTED_OUT"`.
 
@@ -548,17 +548,34 @@ Sends structured feedback on a previous `firecrawl_search` result. The first fee
 
 ### 3c. Generic Feedback Tool (`firecrawl_feedback`)
 
-Sends structured feedback for a completed v2 endpoint job through `/v2/feedback`.
-Use this for endpoint-level feedback on `scrape`, `parse`, `map`, or `search`
-jobs. For search-result quality specifically, prefer
-`firecrawl_search_feedback` because it includes search-specific guidance.
+Sends optional evidence through `/v2/feedback`. Keyless Search, Scrape, and Parse
+jobs require `endpoint`, `jobId`, `rating`, `task`, `assessment`, and 1-20
+`observations`. Each observation has `kind`, `detail`, and `basis`: `output`,
+`source_comparison`, or `expectation`. Source comparisons also require
+`comparison: {reference, detail}`.
+
+For Search, report useful or irrelevant results by source group and one-based
+position, or missing information with a topic and any already-known source URLs.
+For Scrape, report correct, missing, incorrect, or failed output. For Parse,
+report correct output or text, table, layout, or completeness issues. The tool
+description lists the complete fields. Use only available evidence and keep
+unverified expectations distinct from source comparisons.
+
+Keyless submissions are limited to one per identity, category, and UTC day across
+clients, with references valid for 24 hours. Feedback remains available after
+operation allowance is exhausted and does not consume or restore that allowance.
+
+Authenticated callers retain the existing issue/note fields for Search, Scrape,
+Parse, and Map. For authenticated Search-specific feedback, continue using
+`firecrawl_search_feedback`. Choose the contract that matches the originating
+job's authentication; adding credentials does not convert a keyless job.
 
 Keep feedback concise: use issue codes, tags, short notes, URLs, page numbers,
 and small metadata objects. Do not include raw scrape/parse outputs.
 
 **Opt out:** set `FIRECRAWL_NO_ENDPOINT_FEEDBACK=1` (or `FIRECRAWL_DISABLE_ENDPOINT_FEEDBACK=1`) in the environment when starting the MCP server. The `firecrawl_feedback` tool will not be registered, so agents cannot call it.
 
-**Usage Example:**
+**Authenticated usage example:**
 
 ```json
 {
