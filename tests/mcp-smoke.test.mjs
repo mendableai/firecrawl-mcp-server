@@ -1026,7 +1026,10 @@ test('local keyless stdio keeps profile guidance keyless-scoped and exposes shar
     /firecrawl_search with categories: \["research"\].*research-affiliated websites/i
   );
   assert.match(keylessGuidance, /firecrawl_scrape retrieves one supplied page/i);
-  assert.match(keylessGuidance, /firecrawl_parse processes supported local files/i);
+  assert.match(
+    keylessGuidance,
+    /firecrawl_parse uploads local file bytes to the API in local MCP and uses a two-phase upload flow in hosted MCP/i
+  );
   assert.doesNotMatch(
     keylessGuidance,
     /firecrawl_(?:map|agent|agent_status|research_)/i
