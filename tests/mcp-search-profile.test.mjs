@@ -1088,38 +1088,17 @@ test('companion telemetry follows credential precedence without resolving API ke
   assert.doesNotMatch(getStdout(), /fc-primary-credential|fco_secondary-credential/);
 });
 
-test('search-only surface preserves Alexandria browsing controls without requiring a query', async (t) => {
+test('search-only surface rejects catalogue browsing and preserves semantic plus contextual discovery', async (t) => {
   const backend = await startFakeBackend();
   t.after(() => backend.close());
-  const { searchPort } = await startHostedServer(t, {
-    FIRECRAWL_API_URL: backend.url,
-  });
-  const source = {
-    type: 'alexandria',
-    mode: 'browse',
-    categories: ['finance'],
-    providers: ['fred'],
-    level: 'tools',
-    expand: ['options', 'examples'],
-    languages: ['python'],
-    limit: 5,
-    cursor: 'next',
-  };
-  const response = await jsonRpc(searchPort, SEARCH_ENDPOINT, {
-    id: 77,
-    method: 'tools/call',
-    params: {
-      name: 'firecrawl_search',
-      arguments: { sources: [source], skills: true },
-    },
-    headers: { 'x-api-key': 'fc-search-key' },
-  });
-  const message = parseSseJson(await response.text());
-  assert.notEqual(message.result?.isError, true, JSON.stringify(message));
-  const sent = backend.requests.find(
-    (request) => request.url === '/v2/search'
-  ).body;
-  assert.deepEqual(sent.sources, [source]);
-  assert.equal(sent.skills, true);
-  assert.equal(sent.scrapeOptions, undefined);
+  const { searchPort } = await startHostedServer(t, {FIRECRAWL_API_URL: backend.url});
+  const call = arguments_ => jsonRpc(searchPort, SEARCH_ENDPOINT, {id:77,method:'tools/call', params:{name:'firecrawl_search',arguments:arguments_},headers:{'x-api-key':'fc-search-key'}});
+  const invalid = parseSseJson(await (await call({sources:[{type:'alexandria',mode:'browse'}]})).text());
+  assert.ok(invalid.error || invalid.result?.isError);
+  assert.equal(backend.requests.filter(r=>r.url==='/v2/search').length, 0);
+  const valid = parseSseJson(await (await call({query:'podcast episodes',sources:['alexandria'],skills:true})).text());
+  assert.ok(!valid.error && !valid.result?.isError, JSON.stringify(valid));
+  const sent = backend.requests.find(r=>r.url==='/v2/search').body;
+  assert.deepEqual(sent.sources,['alexandria']);
+  assert.equal(sent.skills,true);
 });

@@ -5,27 +5,12 @@ const catalogueTypes = [
   'exchange-providers',
   'exchange',
 ] as const;
-const catalogueFields = {
-  type: z.enum(catalogueTypes),
-  mode: z.enum(['semantic', 'browse']).optional(),
-  categories: z.array(z.string().min(1)).optional(),
-  providers: z.array(z.string().min(1)).optional(),
-  domains: z.array(z.string().min(1)).optional(),
-  groups: z.array(z.string().min(1)).optional(),
-  capabilities: z.array(z.string().min(1)).optional(),
-  level: z.enum(['categories', 'providers', 'groups', 'tools']).optional(),
-  expand: z.array(z.enum(['options', 'response', 'examples'])).optional(),
-  languages: z.array(z.enum(['javascript', 'python', 'curl'])).optional(),
-  limit: z.number().int().min(1).max(100).optional(),
-  cursor: z.string().min(1).optional(),
-};
-
 export const searchSourceSchema = z.union([
   z.enum(['web', 'images', 'news', ...catalogueTypes]),
-  z.object({ type: z.enum(['web', 'images', 'news']) }).strict(),
-  z.object(catalogueFields).strict(),
+  z
+    .object({ type: z.enum(['web', 'images', 'news', ...catalogueTypes]) })
+    .strict(),
 ]);
-
 export function hasAlexandria(sources: unknown): boolean {
   return (
     Array.isArray(sources) &&
@@ -36,7 +21,6 @@ export function hasAlexandria(sources: unknown): boolean {
     )
   );
 }
-
 export function normalizeSearchSources(sources: unknown): unknown {
   if (!Array.isArray(sources)) return sources;
   return sources.map((source) =>
@@ -47,31 +31,31 @@ export function normalizeSearchSources(sources: unknown): unknown {
         : source
   );
 }
-
-export function searchQueryIsValid(args: {
-  query?: string;
-  sources?: z.infer<typeof searchSourceSchema>[];
-  includeDomains?: string[];
-  excludeDomains?: string[];
-}): boolean {
-  if (args.query?.trim()) return true;
-  return (
-    !!args.sources?.length &&
-    !args.includeDomains?.length &&
-    !args.excludeDomains?.length &&
-    args.sources.every(
-      (source) =>
-        catalogueTypes.includes(
-          (typeof source === 'string'
-            ? source
-            : source.type) as (typeof catalogueTypes)[number]
-        ) &&
-        (typeof source === 'string' ||
-          !('mode' in source) ||
-          source.mode !== 'semantic')
-    )
-  );
+export function searchQueryIsValid(args: { query?: string }): boolean {
+  return !!args.query?.trim();
 }
 
+export const findToolsSchema = z
+  .object({
+    urls: z
+      .array(
+        z
+          .string()
+          .url()
+          .regex(/^https?:\/\//)
+      )
+      .max(100)
+      .optional(),
+    providers: z.array(z.string().min(1)).max(50).optional(),
+    categories: z.array(z.string().min(1)).max(50).optional(),
+    groups: z.array(z.string().min(1)).max(50).optional(),
+    capabilities: z.array(z.string().min(1)).max(50).optional(),
+    level: z.enum(['providers', 'groups', 'tools']).optional(),
+    expand: z.array(z.enum(['options', 'response', 'examples'])).optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+    offset: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
 export const ALEXANDRIA_INSTRUCTIONS =
-  'Use firecrawl_search sources ["alexandria"] for free catalogue discovery, or mix it with web/news/images. Sources also accept objects with mode semantic|browse, categories/providers/domains/groups/capabilities arrays, level categories|providers|groups|tools, expand options/response/examples, languages javascript/python/curl, limit and cursor. Omit query for catalogue-only browsing. data.alexandria contains status, items, total, nextCursor; unavailable is not zero matches. Each item.next is a complete firecrawl_search input for progressive disclosure. Preserve query and filters when paging. Read the options and price before executing. skills:true includes contextual tools for query mentions and result URLs. Discovery is free; web search, scraping and provider execution have their own charges. Access is derived from your authenticated team.';
+  'Use firecrawl_search with a query and sources ["alexandria"] to find relevant tool contracts, or mix with web/news/images. Contracts are in data.tools, including inputs, response fields, examples, creditsCost, matchedBy and matchedUrls. skills:true adds domain-matched tools to the same array. Search always requires a query. Use Find Tools for contextual lookup and progressive disclosure by URL, provider, category, group or capability. Discovery is free; web search and provider execution have their own charges. Access follows the authenticated team policy.';

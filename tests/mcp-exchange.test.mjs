@@ -128,32 +128,17 @@ async function startFakeExchangeApi(options = {}) {
       return res.end('# Particle podcasts');
     }
     if (req.method === 'POST' && url.pathname === '/v2/search') {
-      if (parsedBody.sources?.some((source) => source.level === 'tools'))
-        return json(200, {
-          success: true,
-          data: {
-            alexandria: {
-              status: 'available',
-              items: [
-                {
-                  id: 'particle/podcasts/search',
-                  next: { sources: parsedBody.sources },
-                },
-              ],
-              total: 20,
-              nextCursor: 'page-2',
-            },
-          },
-        });
       return json(200, {
         success: true,
-        data: { exchange: [CAPABILITY_HIT] },
+        data: { tools: [CAPABILITY_HIT] },
         creditsUsed: 0,
         id: '00000000-0000-4000-8000-000000000000',
       });
     }
 
     if (req.method === 'POST' && url.pathname === '/v2/scrape') {
+      if (parsedBody.exchange?.provider === 'firecrawl-contextual-discovery') return json(200, {success:true, data:{creditsCost:0, exchange:[{provider:'firecrawl-contextual-discovery',capability:'discovery/context',creditsCost:0,data:{level:'tools',items:[],total:4,next:{provider:'firecrawl-contextual-discovery',capability:'discovery/context',options:{...parsedBody.exchange.options, offset:4}}}}]}});
+
       if (parsedBody?.exchange?.[0]?.provider === 'locked') {
         return json(403, {
           success: false,
@@ -391,31 +376,11 @@ test('exchange tool metadata: discover is listed, scrape url is optional, langua
       .find((form) => form.type === 'string')
       .enum.includes('alexandria')
   );
-  const catalogue = sourceForms.find((form) => form.properties?.level);
-  assert.deepEqual(catalogue.properties.level.enum, [
-    'categories',
-    'providers',
-    'groups',
-    'tools',
-  ]);
-  for (const field of [
-    'mode',
-    'categories',
-    'providers',
-    'domains',
-    'groups',
-    'capabilities',
-    'expand',
-    'languages',
-    'limit',
-    'cursor',
-  ])
-    assert.ok(catalogue.properties[field], field);
-  assert.match(search.description, /data\.alexandria/);
-  assert.match(
-    init.instructions,
-    /firecrawl_exchange_discover with the Exchange options of firecrawl_search and firecrawl_scrape/i
-  );
+  assert.equal(sourceForms.some(form => form.properties?.level), false);
+  assert.match(search.description, /data\.tools/);
+  const find = byName.get('firecrawl_find_tools');
+  assert.equal(find.annotations.readOnlyHint, true);
+  assert.deepEqual(find.inputSchema.properties.level.enum, ['providers', 'groups', 'tools']);
 
   assertAgentMetadataPolicy(
     [init.instructions, ...tools.tools.map((tool) => tool.description)].join(
@@ -453,7 +418,7 @@ test('firecrawl_search forwards the exchange source and passes data.exchange and
   });
 
   const payload = toolText(result);
-  assert.deepEqual(payload.data.exchange, [CAPABILITY_HIT]);
+  assert.deepEqual(payload.data.tools, [CAPABILITY_HIT]);
   assert.equal(payload.creditsUsed, 0);
   assert.equal(payload.id, '00000000-0000-4000-8000-000000000000');
 });
@@ -486,7 +451,7 @@ test('firecrawl_search forwards bare-string sources verbatim, including the acce
       ),
       origin: 'mcp-fastmcp',
     });
-    assert.deepEqual(toolText(result).data.exchange, [CAPABILITY_HIT]);
+    assert.deepEqual(toolText(result).data.tools, [CAPABILITY_HIT]);
   }
 
   const invalid = await callExpectingError(client, {
@@ -794,6 +759,7 @@ test('hosted keyless sessions never reach the Exchange; an API key header does',
   const port = await getFreePort();
   const child = spawnServer({
     CLOUD_SERVICE: 'true',
+    FIRECRAWL_MCP_SEARCH_PORT: String(await getFreePort()),
     FASTMCP_ENDPOINT: '/v2/mcp',
     FIRECRAWL_API_URL: backend.url,
     HTTP_STREAMABLE_SERVER: 'true',
@@ -801,7 +767,8 @@ test('hosted keyless sessions never reach the Exchange; an API key header does',
     PORT: String(port),
   });
   t.after(() => stopChild(child));
-  await waitForHealth(port, child);
+  let startupError = ''; child.stderr.on('data', chunk => { startupError += chunk; });
+  try { await waitForHealth(port, child); } catch (error) { throw new Error(`${error.message}: ${startupError}`); }
   const keylessHeaders = { 'x-forwarded-for': '8.8.8.7' };
 
   const listing = await fetch(`http://127.0.0.1:${port}/v2/mcp`, {
@@ -896,45 +863,21 @@ test('hosted keyless sessions never reach the Exchange; an API key header does',
   });
 });
 
-test('Alexandria preserves disclosure filters and resolves contextual skill contracts', async (t) => {
+test('Find Tools uses scrape for contextual lookup, chaining and pagination', async (t) => {
   const { api, client } = await startStdioWithApi(t);
-  const source = {
-    type: 'alexandria',
-    mode: 'browse',
-    providers: ['particle'],
-    categories: ['podcasts'],
-    domains: ['podcasts.apple.com'],
-    groups: ['podcasts'],
-    capabilities: ['podcasts/search'],
-    level: 'tools',
-    expand: ['options', 'response', 'examples'],
-    languages: ['javascript', 'python', 'curl'],
-    limit: 5,
-    cursor: 'page-1',
-  };
-  const response = await client.request('tools/call', {
-    name: 'firecrawl_search',
-    arguments: { sources: [source] },
-  });
-  assert.notEqual(response.isError, true);
-  assert.deepEqual(api.requests[0].body.sources, [source]);
-  assert.equal(toolText(response).data.alexandria.total, 20);
-  assert.deepEqual(toolText(response).data.alexandria.items[0].next, {
-    sources: [source],
-  });
-  const match = await client.request('tools/call', {
-    name: 'firecrawl_skills_resolve',
-    arguments: { urls: ['https://podcasts.apple.com/us/'], query: 'spotify', context: 'scrape' },
-  });
-  assert.deepEqual(api.requests[1].body, {
-    urls: ['https://podcasts.apple.com/us/'],
-    query: 'spotify',
-    context: 'scrape',
-  });
-  assert.equal(toolText(match).skills[0].id, 'particle-podcasts');
-  const skill = await client.request('tools/call', {
-    name: 'firecrawl_skill',
-    arguments: { id: 'particle-podcasts' },
-  });
-  assert.equal(skill.content[0].text, '# Particle podcasts');
+  const options = {providers: ['particle'], capabilities: ['podcasts/episodes/search'], expand: ['options', 'response'], limit: 2, offset: 2};
+  const response = await client.request('tools/call', {name: 'firecrawl_find_tools', arguments: options});
+  const call = {provider: 'firecrawl-contextual-discovery', capability: 'discovery/context', options};
+  assert.equal(api.requests[0].url, '/v2/scrape');
+  assert.deepEqual(api.requests[0].body.exchange, call);
+  assert.equal(toolText(response).data.creditsCost, 0);
+  const next = toolText(response).data.exchange[0].data.next;
+  await client.request('tools/call', {name: 'firecrawl_scrape', arguments: {exchange: next, requestId: 'walk-1'}});
+  assert.deepEqual(api.requests[1].body.exchange, next);
+  assert.equal(api.requests[1].headers['x-request-id'], 'walk-1');
+  const before = api.requests.length;
+  for (const arguments_ of [{sources: ['alexandria']}, {query: 'podcasts', sources: [{type: 'alexandria', mode: 'browse'}]}]) {
+    await callExpectingError(client, {name: 'firecrawl_search', arguments: arguments_});
+  }
+  assert.equal(api.requests.length, before);
 });
