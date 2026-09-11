@@ -2374,6 +2374,7 @@ async function keylessPost(
   const headers: Record<string, string> = {
     ...ORIGIN_HEADERS,
     'Content-Type': 'application/json',
+    ...feedbackPreferenceHeaders(),
   };
   // Forward the real client IP (secret-authenticated) when proxying keyless
   // requests through the hosted MCP, so the API rate-limits per real IP.
@@ -2531,6 +2532,12 @@ const ENDPOINT_FEEDBACK_DISABLED = feedbackEnvEnabled(
   'FIRECRAWL_NO_ENDPOINT_FEEDBACK',
   'FIRECRAWL_DISABLE_ENDPOINT_FEEDBACK'
 );
+
+function feedbackPreferenceHeaders(): Record<string, string> {
+  return ENDPOINT_FEEDBACK_DISABLED
+    ? { 'x-firecrawl-no-feedback': '1' }
+    : {};
+}
 
 if (SEARCH_FEEDBACK_DISABLED) {
   console.error(
@@ -3220,7 +3227,10 @@ Set \`redactPII\` to request redaction of personally identifiable information in
     form.append('file', blob, filename);
     form.append('options', JSON.stringify(optionsPayload));
 
-    const headers: Record<string, string> = { ...ORIGIN_HEADERS };
+    const headers: Record<string, string> = {
+      ...ORIGIN_HEADERS,
+      ...feedbackPreferenceHeaders(),
+    };
     const credential = credentialForOutboundRequest(session);
     if (credential) {
       headers['Authorization'] = `Bearer ${credential}`;
