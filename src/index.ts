@@ -3191,7 +3191,12 @@ Set \`redactPII\` to request redaction of personally identifiable information in
       return executeHostedParse(args as ParseToolArgs, session, log);
     }
 
-    const apiUrl = resolveApiBaseUrl();
+    const apiUrl = process.env.FIRECRAWL_API_URL;
+    if (!apiUrl) {
+      throw new Error(
+        'firecrawl_parse requires FIRECRAWL_API_URL to be set to a self-hosted Firecrawl API instance.'
+      );
+    }
 
     const {
       filePath,

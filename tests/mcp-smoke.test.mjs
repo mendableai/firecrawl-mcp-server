@@ -3225,3 +3225,26 @@ test('local Parse preserves job evidence on success and failure and respects inv
     }
   }
 });
+
+
+test('local Parse still requires an explicit API URL', async (t) => {
+  const child = spawnServer({
+    FIRECRAWL_API_KEY: '',
+    FIRECRAWL_API_URL: '',
+    CLOUD_SERVICE: '',
+  });
+  t.after(() => stopChild(child));
+  const client = new StdioMcpClient(child);
+  await client.request('initialize', {
+    capabilities: {},
+    clientInfo: { name: 'parse-configuration-test', version: '0.0.0' },
+    protocolVersion: '2025-06-18',
+  });
+  client.notify('notifications/initialized');
+  const result = await client.request('tools/call', {
+    name: 'firecrawl_parse',
+    arguments: { filePath: '/not-read-without-an-api-url.html' },
+  });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /requires FIRECRAWL_API_URL/);
+});
