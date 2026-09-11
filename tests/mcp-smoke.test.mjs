@@ -1146,6 +1146,57 @@ test('developer search serves server-shaped passages uncapped', async (t) => {
   );
 });
 
+test('developer search rejects unknown arguments before calling the API', async (t) => {
+  const fakeApi = await startFakeDeveloperApi();
+  t.after(() => fakeApi.close());
+
+  const child = spawnServer({
+    FIRECRAWL_API_KEY: 'fc-test',
+    FIRECRAWL_API_URL: fakeApi.url,
+  });
+  t.after(() => stopChild(child));
+
+  const client = new StdioMcpClient(child);
+  await client.request('initialize', {
+    capabilities: {},
+    clientInfo: { name: 'firecrawl-developer-strict', version: '0.0.0' },
+    protocolVersion: '2025-06-18',
+  });
+  client.notify('notifications/initialized');
+
+  // The published schema declares additionalProperties: false; the runtime
+  // must enforce it. A misrouted parameter (limit belongs to other tools) and
+  // an invented one must fail loudly, not return plausible results.
+  const tools = await client.request('tools/list');
+  const developerTool = tools.tools.find(
+    (tool) => tool.name === 'firecrawl_developer_search'
+  );
+  assert.ok(developerTool);
+  assert.equal(developerTool.inputSchema.additionalProperties, false);
+
+  await assert.rejects(
+    client.request('tools/call', {
+      arguments: { bogusParam: 'xyz', limit: 5, query: 'python asyncio' },
+      name: 'firecrawl_developer_search',
+    }),
+    /-32602/
+  );
+
+  // Rejection happens at argument parse time: the API must never be reached.
+  assert.equal(fakeApi.requests.length, 0);
+
+  // Known arguments still pass through untouched.
+  const ok = await client.request('tools/call', {
+    arguments: { k: 2, query: 'server budget' },
+    name: 'firecrawl_developer_search',
+  });
+  assert.notEqual(ok.isError, true);
+  assert.deepEqual(
+    fakeApi.requests.map((request) => request.url),
+    ['/v2/search/developer?query=server+budget&k=2']
+  );
+});
+
 test('stdio transport calls Firecrawl API through a tool end to end', async (t) => {
   const fakeApi = await startFakeFirecrawlApi();
   t.after(() => fakeApi.close());

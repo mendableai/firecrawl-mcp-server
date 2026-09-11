@@ -92,7 +92,13 @@ For a developer question — code behaviour, a library or framework, an API cont
 
 Returns ranked results with an ID, source type, URL, title, and the matched passages in markdown.
 `,
-    parameters: z.object({
+    // strictObject so unknown argument keys are rejected at parse time with
+    // the same -32602 the value constraints already raise. The published JSON
+    // schema has always advertised additionalProperties: false; plain z.object
+    // silently stripped unknown keys, so a misrouted or hallucinated argument
+    // (limit, passages, a typo) returned plausible results instead of an
+    // error. Firebrain finding F8, 2026-08-03 Developer Index audit.
+    parameters: z.strictObject({
       query: z
         .string()
         .min(1)
