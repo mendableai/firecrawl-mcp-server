@@ -1,0 +1,11 @@
+src/index.ts
+  ai_agent 2674-2675
+tests/mcp-exchange.test.mjs
+  ai_agent 153,970
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "17716af5aa18968f77f6b5130225366c232d3d8f",
+  "prompts": {}
+}
