@@ -1128,7 +1128,7 @@ const openAiAppsChallengeToken = normalizeHeader(
 
 const FULL_PROFILE_INSTRUCTIONS =
   ALEXANDRIA_INSTRUCTIONS +
-  ` firecrawl_skills_resolve matches query mentions and page URLs, and firecrawl_skill reads a Markdown contract. Execution with firecrawl_scrape exchange uses requestId; reuse the returned ID for retries of the same payload, never a new ID to bypass a pending or uncertain 409. Firecrawl provides web search, page retrieval, site URL discovery, multi-page collection, structured page data, monitoring, and multi-source research that returns structured data. Match the requested operation to the tool boundary: firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema, firecrawl_map enumerates URLs under a site without retrieving their content, and firecrawl_agent runs multi-source research and returns structured data when the URLs are not known or the answer spans several sites (an entity plus its fields, a list, a dataset); its result is read with firecrawl_agent_status. For biomedical, life-science, clinical, or arXiv literature, the firecrawl_research_* tools search a paper index of abstracts and full text; firecrawl_search with categories: ["research"] is a website filter over ordinary web results and reaches different sources. For a programming question — code behaviour, a library or framework, an API contract, an error message, or a known bug — firecrawl_developer_search (or firecrawl_search with categories: ["developer"]) searches an index of repositories, GitHub issues, merged pull requests, READMEs, and curated documentation sites. Firecrawl Exchange is a catalogue of data providers: firecrawl_search with sources: [{type: "alexandria"}] returns complete tool contracts in data.tools, firecrawl_find_tools walks providers, groups, and capabilities to progressively read contracts, and firecrawl_scrape with exchange: [{provider, capability, options}] executes up to ten capabilities and reports data.creditsCost. Exchange access needs an API key on a team with Exchange enabled. Provide only the required inputs and account for stated network or external side effects.`;
+  ` firecrawl_skills_resolve matches query mentions and page URLs, and firecrawl_skill reads a Markdown contract. Execution with firecrawl_scrape alexandria uses requestId; reuse the returned ID for retries of the same payload, never a new ID to bypass a pending or uncertain 409. Firecrawl provides web search, page retrieval, site URL discovery, multi-page collection, structured page data, monitoring, and multi-source research that returns structured data. Match the requested operation to the tool boundary: firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema, firecrawl_map enumerates URLs under a site without retrieving their content, and firecrawl_agent runs multi-source research and returns structured data when the URLs are not known or the answer spans several sites (an entity plus its fields, a list, a dataset); its result is read with firecrawl_agent_status. For biomedical, life-science, clinical, or arXiv literature, the firecrawl_research_* tools search a paper index of abstracts and full text; firecrawl_search with categories: ["research"] is a website filter over ordinary web results and reaches different sources. For a programming question — code behaviour, a library or framework, an API contract, an error message, or a known bug — firecrawl_developer_search (or firecrawl_search with categories: ["developer"]) searches an index of repositories, GitHub issues, merged pull requests, READMEs, and curated documentation sites. Firecrawl Exchange is a catalogue of data providers: firecrawl_search with sources: [{type: "alexandria"}] returns complete tool contracts in data.tools, firecrawl_find_tools walks providers, groups, and capabilities to progressively read contracts, and firecrawl_scrape with alexandria: [{provider, capability, options}] executes up to ten capabilities and reports data.creditsCost. Exchange access needs an API key on a team with Exchange enabled. Provide only the required inputs and account for stated network or external side effects.`;
 const KEYLESS_PROFILE_INSTRUCTIONS = `Hosted keyless sessions expose firecrawl_search, firecrawl_scrape, and firecrawl_parse with usage limits. firecrawl_search searches the web. For programming questions, firecrawl_search with categories: ["developer"] searches indexed repositories, GitHub issues, merged pull requests, repository READMEs, and curated documentation sites. For biomedical, life-science, clinical, or arXiv literature, firecrawl_search with categories: ["research"] filters ordinary web results to research-affiliated websites. firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema. firecrawl_parse processes supported local files through its two-phase upload flow. An Authorization bearer API key can provide higher usage limits and expose additional tools, subject to plan, deployment, and team policy, including firecrawl_map for site URL discovery, firecrawl_agent and firecrawl_agent_status for multi-source research that returns structured data when the URLs are not known, firecrawl_research_* for paper-index and repository research, and firecrawl_exchange_discover with the Exchange options of firecrawl_search and firecrawl_scrape for catalogued data providers.`;
 
 // The search surface exposes web/developer/research search only. Its instructions
@@ -1901,7 +1901,7 @@ const scrapeParamsSchema = z.object({
 
 // firecrawl_scrape accepts either a page URL or an Exchange batch. The base
 // schema stays url-required because search, crawl, and monitor reuse it for
-// nested scrapeOptions, where `exchange` has no meaning.
+// nested scrapeOptions, where `alexandria` has no meaning.
 const scrapeToolParamsSchema = scrapeParamsSchema
   .extend({
     url: z.string().url().optional(),
@@ -1912,10 +1912,10 @@ const scrapeToolParamsSchema = scrapeParamsSchema
       .describe(
         'Exchange execution ID. Reuse for retries of the identical payload; generated when omitted and returned with the result.'
       ),
-    exchange: z.union([exchangeCallSchema, exchangeCallsSchema])
+    alexandria: z.union([exchangeCallSchema, exchangeCallsSchema])
       .optional()
       .describe(
-        'Execute Firecrawl Exchange capabilities instead of scraping a URL. Exactly one of url or exchange.'
+        'Execute Firecrawl Exchange capabilities instead of scraping a URL. Exactly one of url or alexandria.'
       ),
     domainTools: z
       .boolean()
@@ -1925,20 +1925,20 @@ const scrapeToolParamsSchema = scrapeParamsSchema
       ),
   })
   .refine(
-    (args) => Boolean(args.url) !== Boolean(args.exchange),
-    'Provide exactly one of url or exchange'
+    (args) => Boolean(args.url) !== Boolean(args.alexandria),
+    'Provide exactly one of url or alexandria'
   )
   .refine(
     (args) =>
-      !args.exchange ||
+      !args.alexandria ||
       Object.entries(args).every(
         ([key, value]) =>
-          key === 'exchange' || key === 'requestId' || key === 'timeout' || value === undefined
+          key === 'alexandria' || key === 'requestId' || key === 'timeout' || value === undefined
       ),
-    'exchange cannot be combined with url or other scrape options'
+    'alexandria cannot be combined with url or other scrape options'
   )
   .refine(
-    (args) => !args.requestId || !!args.exchange,
+    (args) => !args.requestId || !!args.alexandria,
     'requestId applies to Exchange execution only'
   );
 
@@ -2338,7 +2338,7 @@ Firecrawl may reuse recently indexed content instead of refetching the page, and
 
 Returns the selected content formats and page metadata.
 
-Exchange mode: pass \`exchange\` (one \`{provider, capability, options}\` object or an array of 1-10) instead of \`url\` to execute catalogued Firecrawl Exchange capabilities found through \`firecrawl_search\` sources \`alexandria\` or \`firecrawl_exchange_discover\`. The optional requestId identifies one logical execution: reuse the returned ID for retries of the identical payload, never a new ID to bypass pending or uncertain execution. Only timeout also applies in this mode. Returns \`{ success, scrape_id, data: { exchange: [...], creditsCost } }\` where each item is a per-capability result (\`data\`, \`records\`, \`creditsCost\`) or an \`error\` with a code; \`data.creditsCost\` is the sum of the successful items. Exchange needs an API key on a team with Exchange access.
+Alexandria mode: pass \`alexandria\` (one \`{provider, capability, options}\` object or an array of 1-10) instead of \`url\` to execute catalogued Firecrawl Exchange capabilities found through \`firecrawl_search\` sources \`alexandria\` or \`firecrawl_exchange_discover\`. The optional requestId identifies one logical execution: reuse the returned ID for retries of the identical payload, never a new ID to bypass pending or uncertain execution. Only timeout also applies in this mode. Returns \`{ success, scrape_id, data: { alexandria: [...], creditsCost } }\` where each item is a per-capability result (\`data\`, \`records\`, \`creditsCost\`) or an \`error\` with a code; \`data.creditsCost\` is the sum of the successful items. Exchange needs an API key on a team with Exchange access.
 
 URL mode only: set \`domainTools: true\` to also return domain-matched Firecrawl Exchange tools for the page in \`data.tools\`.
 
@@ -2348,20 +2348,20 @@ Exchange execution errors relay a \`code\` and \`chargeId\`: \`request_in_flight
   execute: async (args: unknown, { session, log }): Promise<string> => {
     const {
       url,
-      exchange,
+      alexandria,
       requestId: suppliedRequestId,
       ...options
     } = args as {
       requestId?: string;
       url?: string;
-      exchange?: z.infer<typeof exchangeCallSchema> | z.infer<typeof exchangeCallsSchema>;
+      alexandria?: z.infer<typeof exchangeCallSchema> | z.infer<typeof exchangeCallsSchema>;
     } & Record<string, unknown>;
-    if (exchange) {
+    if (alexandria) {
       assertExchangeCredential(session);
       log.info('Executing Exchange capabilities', {
-        count: Array.isArray(exchange) ? exchange.length : 1,
+        count: Array.isArray(alexandria) ? alexandria.length : 1,
       });
-      return executeExchangeCalls(session, exchange, suppliedRequestId, options.timeout as number | undefined);
+      return executeExchangeCalls(session, alexandria, suppliedRequestId, options.timeout as number | undefined);
     }
     const transformed = transformScrapeParams(
       options as Record<string, unknown>
@@ -2519,7 +2519,7 @@ ${ALEXANDRIA_INSTRUCTIONS}
 
 async function executeExchangeCalls(
   session: SessionData | undefined,
-  exchange:
+  alexandria:
     | z.infer<typeof exchangeCallSchema>
     | z.infer<typeof exchangeCallsSchema>,
   suppliedRequestId?: string,
@@ -2533,7 +2533,7 @@ async function executeExchangeCalls(
       (client as any).http.post(
         '/v2/scrape',
         {
-          exchange,
+          alexandria,
           origin: ORIGIN,
           ...(timeout !== undefined ? { timeout } : {}),
         },
@@ -2563,7 +2563,7 @@ server.addTool({
     idempotentHint: true,
   },
   description:
-    'Free contextual lookup and progressive disclosure of the Alexandria catalogue. Start with URLs or providers, then inspect groups, capabilities and contracts. Does not fetch supplied URLs or execute returned tools. Optional filters intersect; omitted level is inferred. data.exchange[0].data contains items, total and next. Each next is an Exchange call: send it unchanged as firecrawl_scrape exchange, or pass next.options to this tool. Top-level next paginates; item.next reveals more detail. To execute a selected tool, supply its provider, capability and contract-derived options to firecrawl_scrape. Use firecrawl_search sources ["alexandria"] for semantic discovery.',
+    'Free contextual lookup and progressive disclosure of the Alexandria catalogue. Start with URLs or providers, then inspect groups, capabilities and contracts. Does not fetch supplied URLs or execute returned tools. Optional filters intersect; omitted level is inferred. data.alexandria[0].data contains items, total and next. Each next is an Exchange call: send it unchanged as firecrawl_scrape alexandria, or pass next.options to this tool. Top-level next paginates; item.next reveals more detail. To execute a selected tool, supply its provider, capability and contract-derived options to firecrawl_scrape. Use firecrawl_search sources ["alexandria"] for semantic discovery.',
   parameters: findToolsSchema,
   execute: async (options, { session }) =>
     executeExchangeCalls(session, {
@@ -2584,7 +2584,7 @@ server.addTool({
   description: `
 Browse the Firecrawl Exchange catalogue of data providers and read capability contracts. Two modes: walk the catalogue by omitting \`q\` (no arguments lists cohorts; \`cohort\` lists its providers, with \`expand: "all"\` inlining their capabilities; \`cohort\` + \`provider\` lists that provider; \`cohort\` + \`provider\` + \`capability\` returns the full contract with \`options\`, \`returns\`, \`creditsCost\`, \`executable\`, and \`exampleQueries\`), or search semantically with \`q\` and optional \`limit\` on the index route, which returns \`capabilities\` (address, provider, cohorts, concept, creditsCost, similarity) without their contracts.
 
-Legacy semantic hits carry no option schema, so walk to the capability address before executing it with \`firecrawl_scrape\` \`exchange\`. Discovery costs nothing. Exchange needs an API key on a team with Exchange access; a 501 semantic_not_configured means the deployment has no semantic index.
+Legacy semantic hits carry no option schema, so walk to the capability address before executing it with \`firecrawl_scrape\` \`alexandria\`. Discovery costs nothing. Exchange needs an API key on a team with Exchange access; a 501 semantic_not_configured means the deployment has no semantic index.
 `,
   parameters: exchangeDiscoverParamsSchema,
   execute: async (args: unknown, { session, log }): Promise<string> => {

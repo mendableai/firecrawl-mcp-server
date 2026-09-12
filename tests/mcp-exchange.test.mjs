@@ -137,15 +137,15 @@ async function startFakeExchangeApi(options = {}) {
     }
 
     if (req.method === 'POST' && url.pathname === '/v2/scrape') {
-      if (parsedBody.exchange?.provider === 'firecrawl-contextual-discovery') return json(200, {success:true, data:{creditsCost:0, exchange:[{provider:'firecrawl-contextual-discovery',capability:'discovery/context',creditsCost:0,data:{level:'tools',items:[],total:4,next:{provider:'firecrawl-contextual-discovery',capability:'discovery/context',options:{...parsedBody.exchange.options, offset:4}}}}]}});
+      if (parsedBody.alexandria?.provider === 'firecrawl-contextual-discovery') return json(200, {success:true, data:{creditsCost:0, alexandria:[{provider:'firecrawl-contextual-discovery',capability:'discovery/context',creditsCost:0,data:{level:'tools',items:[],total:4,next:{provider:'firecrawl-contextual-discovery',capability:'discovery/context',options:{...parsedBody.alexandria.options, offset:4}}}}]}});
 
-      if (parsedBody?.exchange?.[0]?.provider === 'locked') {
+      if (parsedBody?.alexandria?.[0]?.provider === 'locked') {
         return json(403, {
           success: false,
           error: 'Exchange is not enabled for this team.',
         });
       }
-      if (parsedBody?.exchange?.[0]?.provider === 'inflight') {
+      if (parsedBody?.alexandria?.[0]?.provider === 'inflight') {
         return json(409, {
           success: false,
           code: 'request_in_flight',
@@ -153,12 +153,12 @@ async function startFakeExchangeApi(options = {}) {
           error: 'A request with this x-request-id is still in flight.',
         });
       }
-      if (parsedBody?.exchange) {
+      if (parsedBody?.alexandria) {
         return json(200, {
           success: true,
           scrape_id: '11111111-1111-4111-8111-111111111111',
           data: {
-            exchange: [
+            alexandria: [
               {
                 provider: 'fred',
                 capability: 'series/observations',
@@ -366,16 +366,16 @@ test('exchange tool metadata: discover is listed, scrape url is optional, langua
     discover.description,
     /walk the catalogue.*search semantically with `q`/is
   );
-  assert.match(discover.description, /firecrawl_scrape.*`exchange`/s);
+  assert.match(discover.description, /firecrawl_scrape.*`alexandria`/s);
 
   const scrape = byName.get('firecrawl_scrape');
   assert.equal((scrape.inputSchema.required ?? []).includes('url'), false);
-  assert.ok('exchange' in scrape.inputSchema.properties);
+  assert.ok('alexandria' in scrape.inputSchema.properties);
   assert.match(
     scrape.description,
     /request identifies a page and needs its content or defined fields/i
   );
-  assert.match(scrape.description, /Exchange mode.*data\.creditsCost/is);
+  assert.match(scrape.description, /Alexandria mode.*data\.creditsCost/is);
 
   const search = byName.get('firecrawl_search');
   const sourceForms = search.inputSchema.properties.sources.items.anyOf;
@@ -470,12 +470,12 @@ test('firecrawl_search forwards bare-string sources verbatim, including the acce
   assert.equal(api.requests.length, cases.length);
 });
 
-test('firecrawl_scrape with exchange posts the v2 batch and returns the envelope untouched', async (t) => {
+test('firecrawl_scrape with alexandria posts the v2 batch and returns the envelope untouched', async (t) => {
   const { api, client } = await startStdioWithApi(t);
 
   const result = await client.request('tools/call', {
     arguments: {
-      exchange: [
+      alexandria: [
         EXCHANGE_CALL,
         { provider: 'fred', capability: 'series/missing' },
       ],
@@ -491,14 +491,14 @@ test('firecrawl_scrape with exchange posts the v2 batch and returns the envelope
     'Bearer fc-exchange-test'
   );
   assert.deepEqual(api.requests[0].body, {
-    exchange: [
+    alexandria: [
       EXCHANGE_CALL,
       { provider: 'fred', capability: 'series/missing' },
     ],
     origin: 'mcp-fastmcp',
   });
   assert.deepEqual(Object.keys(api.requests[0].body).sort(), [
-    'exchange',
+    'alexandria',
     'origin',
   ]);
 
@@ -508,7 +508,7 @@ test('firecrawl_scrape with exchange posts the v2 batch and returns the envelope
   const retry = await client.request('tools/call', {
     name: 'firecrawl_scrape',
     arguments: {
-      exchange: api.requests[0].body.exchange,
+      alexandria: api.requests[0].body.alexandria,
       requestId: payload.requestId,
     },
   });
@@ -518,10 +518,10 @@ test('firecrawl_scrape with exchange posts the v2 batch and returns the envelope
   assert.equal(payload.success, true);
   assert.equal(payload.scrape_id, '11111111-1111-4111-8111-111111111111');
   assert.equal(payload.data.creditsCost, 1);
-  assert.equal(payload.data.exchange.length, 2);
-  assert.equal(payload.data.exchange[0].creditsCost, 1);
-  assert.equal(payload.data.exchange[0].records, 1);
-  assert.equal(payload.data.exchange[1].error.code, 'capability_not_found');
+  assert.equal(payload.data.alexandria.length, 2);
+  assert.equal(payload.data.alexandria[0].creditsCost, 1);
+  assert.equal(payload.data.alexandria[0].records, 1);
+  assert.equal(payload.data.alexandria[1].error.code, 'capability_not_found');
 });
 
 test('firecrawl_scrape with domainTools sends domainTools and passes data.tools through', async (t) => {
@@ -539,16 +539,16 @@ test('firecrawl_scrape with domainTools sends domainTools and passes data.tools 
   assert.deepEqual(payload.tools, [CAPABILITY_HIT]);
 });
 
-test('firecrawl_scrape rejects url with exchange, neither, extra options, and oversized batches without calling the API', async (t) => {
+test('firecrawl_scrape rejects url with alexandria, neither, extra options, and oversized batches without calling the API', async (t) => {
   const { api, client } = await startStdioWithApi(t);
 
   const invalid = [
-    { url: 'https://example.com/', exchange: [EXCHANGE_CALL] },
+    { url: 'https://example.com/', alexandria: [EXCHANGE_CALL] },
     {},
-    { exchange: [EXCHANGE_CALL], formats: ['markdown'] },
-    { exchange: [] },
-    { exchange: Array.from({ length: 11 }, () => EXCHANGE_CALL) },
-    { exchange: [{ provider: 'fred' }] },
+    { alexandria: [EXCHANGE_CALL], formats: ['markdown'] },
+    { alexandria: [] },
+    { alexandria: Array.from({ length: 11 }, () => EXCHANGE_CALL) },
+    { alexandria: [{ provider: 'fred' }] },
   ];
   for (const args of invalid) {
     await callExpectingError(client, {
@@ -563,7 +563,7 @@ test('firecrawl_scrape relays an Exchange 403 as an explanatory tool error', asy
   const { api, client } = await startStdioWithApi(t);
 
   const result = await callExpectingError(client, {
-    arguments: { exchange: [{ provider: 'locked', capability: 'finance/x' }] },
+    arguments: { alexandria: [{ provider: 'locked', capability: 'finance/x' }] },
     name: 'firecrawl_scrape',
   });
   assert.equal(api.requests.length, 1);
@@ -578,7 +578,7 @@ test('firecrawl_scrape relays a reserved 409 billing error with its code and cha
 
   const result = await callExpectingError(client, {
     arguments: {
-      exchange: [{ provider: 'inflight', capability: 'finance/x' }],
+      alexandria: [{ provider: 'inflight', capability: 'finance/x' }],
     },
     name: 'firecrawl_scrape',
   });
@@ -757,7 +757,7 @@ test('local keyless stdio refuses every Exchange path with the explanatory error
       arguments: { query: 'nvidia', sources: [{ type: 'exchange' }] },
       name: 'firecrawl_search',
     },
-    { arguments: { exchange: [EXCHANGE_CALL] }, name: 'firecrawl_scrape' },
+    { arguments: { alexandria: [EXCHANGE_CALL] }, name: 'firecrawl_scrape' },
     { arguments: { cohort: 'finance' }, name: 'firecrawl_exchange_discover' },
     { arguments: {}, name: 'firecrawl_exchange_discover' },
   ]) {
@@ -831,7 +831,7 @@ test('hosted keyless sessions never reach the Exchange; an API key header does',
   assert.equal(discover.content[0].text, KEYLESS_TOOL_MESSAGE);
 
   for (const params of [
-    { arguments: { exchange: [EXCHANGE_CALL] }, name: 'firecrawl_scrape' },
+    { arguments: { alexandria: [EXCHANGE_CALL] }, name: 'firecrawl_scrape' },
     {
       arguments: { query: 'nvidia', sources: [{ type: 'exchange' }] },
       name: 'firecrawl_search',
@@ -864,7 +864,7 @@ test('hosted keyless sessions never reach the Exchange; an API key header does',
         id: 4,
         headers: { 'x-api-key': 'fc-exchange-header' },
         params: {
-          arguments: { exchange: [EXCHANGE_CALL] },
+          arguments: { alexandria: [EXCHANGE_CALL] },
           name: 'firecrawl_scrape',
         },
       })
@@ -881,7 +881,7 @@ test('hosted keyless sessions never reach the Exchange; an API key header does',
     'Bearer fc-exchange-header'
   );
   assert.deepEqual(scrapeCalls[0].body, {
-    exchange: [EXCHANGE_CALL],
+    alexandria: [EXCHANGE_CALL],
     origin: 'mcp-fastmcp',
   });
 });
@@ -892,11 +892,11 @@ test('Find Tools uses scrape for contextual lookup, chaining and pagination', as
   const response = await client.request('tools/call', {name: 'firecrawl_find_tools', arguments: options});
   const call = {provider: 'firecrawl-contextual-discovery', capability: 'discovery/context', options};
   assert.equal(api.requests[0].url, '/v2/scrape');
-  assert.deepEqual(api.requests[0].body.exchange, call);
+  assert.deepEqual(api.requests[0].body.alexandria, call);
   assert.equal(toolText(response).data.creditsCost, 0);
-  const next = toolText(response).data.exchange[0].data.next;
-  await client.request('tools/call', {name: 'firecrawl_scrape', arguments: {exchange: next, requestId: 'walk-1'}});
-  assert.deepEqual(api.requests[1].body.exchange, next);
+  const next = toolText(response).data.alexandria[0].data.next;
+  await client.request('tools/call', {name: 'firecrawl_scrape', arguments: {alexandria: next, requestId: 'walk-1'}});
+  assert.deepEqual(api.requests[1].body.alexandria, next);
   assert.equal(api.requests[1].headers['x-request-id'], 'walk-1');
   const before = api.requests.length;
   for (const arguments_ of [{sources: ['alexandria']}, {query: 'podcasts', sources: [{type: 'alexandria', mode: 'browse'}]}]) {

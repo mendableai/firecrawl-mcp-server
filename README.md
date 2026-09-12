@@ -307,7 +307,7 @@ Use this guide to select the right tool for your task:
 - **If you need multi-source research that returns structured data, do not know the URLs, or the answer spans several sites** (an entity plus its fields, a list, a dataset): use **agent**
 - **If you want to analyze a whole site or section:** use **crawl** (with limits!)
 - **If you need interactive browser automation** (click, type, navigate): use **interact** with a URL for a fresh page, or **scrape** + **interact** when you already scraped the page or need tighter scrape control
-- **If you need data from a catalogued provider** (Firecrawl Exchange): search with `sources: ["alexandria"]`, inspect the returned tool contract, and execute it with **scrape** `exchange`
+- **If you need data from a catalogued provider** (Firecrawl Exchange): search with `sources: ["alexandria"]`, inspect the returned tool contract, and execute it with **scrape** `alexandria`
 
 ### Quick Reference Table
 
@@ -1013,10 +1013,10 @@ or filters for `providers`, `categories`, `groups`, and `capabilities`. `level` 
 inferred when omitted and accepts `providers`, `groups`, or `tools`. `expand`
 selects contract sections at the tools level.
 
-The response's `data.exchange[0].data` contains `level`, `items`, `total`, and
+The response's `data.alexandria[0].data` contains `level`, `items`, `total`, and
 `next`. An item's `next` reveals more detail; top-level `next` fetches the next
 page. Both are complete Exchange calls: pass one as `firecrawl_scrape`'s
-`exchange` argument. Find Tools costs zero credits and uses `/v2/scrape`; it
+`alexandria` argument. Find Tools costs zero credits and uses `/v2/scrape`; it
 does not execute the paid tools it discovers. URLs from page scrapes can also
 be passed to Find Tools.
 
@@ -1035,13 +1035,13 @@ proxy tools remain available for compatibility on the full MCP surface.
 
 No arguments lists cohorts; `cohort` lists providers (`expand: "all"` inlines their capabilities); `cohort` + `provider` + `capability` returns the full contract (`options`, `returns`, `creditsCost`, `executable`, `exampleQueries`). `q` (with optional `limit`, 1-24) is accepted on the index route only and returns `capabilities` without contracts; a deployment without a semantic index answers `501 semantic_not_configured`.
 
-**Execute (`firecrawl_scrape` with `exchange`):** pass `exchange` instead of `url` (exactly one of the two; requestId and timeout may also be supplied). A single call or an array of up to ten calls is accepted.
+**Execute (`firecrawl_scrape` with `alexandria`):** pass `alexandria` instead of `url` (exactly one of the two; requestId and timeout may also be supplied). A single call or an array of up to ten calls is accepted.
 
 ```json
 {
   "name": "firecrawl_scrape",
   "arguments": {
-    "exchange": [
+    "alexandria": [
       {
         "provider": "fred",
         "capability": "series/observations",
@@ -1052,7 +1052,7 @@ No arguments lists cohorts; `cohort` lists providers (`expand: "all"` inlines th
 }
 ```
 
-**Returns:** `{ success, scrape_id, requestId, data: { exchange: [...], creditsCost } }`. Each item is either a result (`provider`, `capability`, `creditsCost`, `data`, `records`, `upstreamStatus`) or an `error` with a `code`; the batch never fails as a whole for a provider error and `data.creditsCost` sums the successful items. Exchange error bodies (403 without Exchange access, and 402/409 billing statuses) are relayed in-band with their `code`.
+**Returns:** `{ success, scrape_id, requestId, data: { alexandria: [...], creditsCost } }`. Each item is either a result (`provider`, `capability`, `creditsCost`, `data`, `records`, `upstreamStatus`) or an `error` with a `code`; the batch never fails as a whole for a provider error and `data.creditsCost` sums the successful items. Exchange error bodies (403 without Exchange access, and 402/409 billing statuses) are relayed in-band with their `code`.
 
 Execution generates one `x-request-id` and returns it on success or failure. Retry
 the identical payload with that `requestId`; do not create a new ID after an
