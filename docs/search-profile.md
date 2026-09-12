@@ -49,6 +49,16 @@ no request from this surface can ask the API to fetch third-party page content.
 The schema and body construction enforce this directly, and contract tests guard
 the behavior. No runtime filter is involved.
 
+## Exchange source
+
+`sources` entries are source names (`web`, `news`, `images`, `exchange`) or
+`{ type }` objects, forwarded verbatim. `exchange` adds Firecrawl Exchange
+capability hits in `data.exchange`; they are catalogue entries rather than
+documents, cost nothing, and need an API key on a team with Exchange access
+(keyless sessions get an explanatory error before any request). The Exchange
+tools that read contracts (`firecrawl_exchange_discover`) or execute
+capabilities (`firecrawl_scrape` with `exchange`) are not part of this surface.
+
 ## OAuth
 
 - **Resource identity.** The surface advertises its own protected resource,

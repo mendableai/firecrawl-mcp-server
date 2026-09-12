@@ -499,6 +499,40 @@ test('search firecrawl_search sends a clean body built from allowed fields only'
   });
 });
 
+test('search firecrawl_search forwards bare-string sources, including exchange, verbatim', async (t) => {
+  const backend = await startFakeBackend();
+  t.after(() => backend.close());
+  const { searchPort } = await startHostedServer(t, {
+    FIRECRAWL_API_URL: backend.url,
+  });
+
+  const res = await jsonRpc(searchPort, SEARCH_ENDPOINT, {
+    id: 42,
+    method: 'tools/call',
+    params: {
+      arguments: {
+        query: 'nvidia balance sheet',
+        sources: ['web', 'exchange'],
+        limit: 5,
+      },
+      name: 'firecrawl_search',
+    },
+    headers: { 'x-api-key': 'fc-search-key' },
+  });
+  assert.equal(res.status, 200);
+  const message = parseSseJson(await res.text());
+  assert.notEqual(message.result?.isError, true, JSON.stringify(message));
+
+  const searchCalls = backend.requests.filter((r) => r.url === '/v2/search');
+  assert.equal(searchCalls.length, 1);
+  assert.deepEqual(searchCalls[0].body, {
+    query: 'nvidia balance sheet',
+    sources: ['web', 'alexandria'],
+    limit: 5,
+    origin: 'mcp-fastmcp',
+  });
+});
+
 test('search firecrawl_search forwards the developer category in the web group', async (t) => {
   const backend = await startFakeBackend();
   t.after(() => backend.close());
@@ -1084,4 +1118,19 @@ test('companion telemetry follows credential precedence without resolving API ke
     ]
   );
   assert.doesNotMatch(getStdout(), /fc-primary-credential|fco_secondary-credential/);
+});
+
+test('search-only surface rejects catalogue browsing and preserves semantic plus contextual discovery', async (t) => {
+  const backend = await startFakeBackend();
+  t.after(() => backend.close());
+  const { searchPort } = await startHostedServer(t, {FIRECRAWL_API_URL: backend.url});
+  const call = arguments_ => jsonRpc(searchPort, SEARCH_ENDPOINT, {id:77,method:'tools/call', params:{name:'firecrawl_search',arguments:arguments_},headers:{'x-api-key':'fc-search-key'}});
+  const invalid = parseSseJson(await (await call({sources:[{type:'alexandria',mode:'browse'}]})).text());
+  assert.ok(invalid.error || invalid.result?.isError);
+  assert.equal(backend.requests.filter(r=>r.url==='/v2/search').length, 0);
+  const valid = parseSseJson(await (await call({query:'podcast episodes',sources:['alexandria'],domainTools:true})).text());
+  assert.ok(!valid.error && !valid.result?.isError, JSON.stringify(valid));
+  const sent = backend.requests.find(r=>r.url==='/v2/search').body;
+  assert.deepEqual(sent.sources,['alexandria']);
+  assert.equal(sent.domainTools,true);
 });

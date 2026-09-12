@@ -307,21 +307,23 @@ Use this guide to select the right tool for your task:
 - **If you need multi-source research that returns structured data, do not know the URLs, or the answer spans several sites** (an entity plus its fields, a list, a dataset): use **agent**
 - **If you want to analyze a whole site or section:** use **crawl** (with limits!)
 - **If you need interactive browser automation** (click, type, navigate): use **interact** with a URL for a fresh page, or **scrape** + **interact** when you already scraped the page or need tighter scrape control
+- **If you need data from a catalogued provider** (Firecrawl Exchange): search with `sources: ["alexandria"]`, inspect the returned tool contract, and execute it with **scrape** `alexandria`
 
 ### Quick Reference Table
 
-| Tool         | Best for                                       | Returns                        |
-| ------------ | ---------------------------------------------- | ------------------------------ |
-| scrape       | Single page content                            | JSON (preferred) or markdown   |
-| interact     | Interact with a URL or scraped page            | Execution result + scrapeId for URL mode |
-| map          | Discovering URLs on a site                     | URL[]                          |
-| crawl        | Multi-page extraction (with limits)            | final crawl status/data after internal polling |
-| parse        | Files and hosted upload refs                   | markdown, JSON, or document output |
-| search       | Web search for info                            | results[]                      |
-| developer    | Programming questions over developer sources   | results[] with passages        |
-| agent        | Multi-source research, unknown or many sites   | JSON (structured data)         |
-| monitor      | Recurring page checks                          | monitor/check metadata and diffs |
-| research     | Paper and GitHub repository research           | research results and repo matches |
+| Tool      | Best for                                       | Returns                                          |
+| --------- | ---------------------------------------------- | ------------------------------------------------ |
+| scrape    | Single page content                            | JSON (preferred) or markdown                     |
+| interact  | Interact with a URL or scraped page            | Execution result + scrapeId for URL mode         |
+| map       | Discovering URLs on a site                     | URL[]                                            |
+| crawl     | Multi-page extraction (with limits)            | final crawl status/data after internal polling   |
+| parse     | Files and hosted upload refs                   | markdown, JSON, or document output               |
+| search    | Web search for info                            | results[]                                        |
+| exchange  | Catalogued data providers (Firecrawl Exchange) | capability hits, contracts, and executed results |
+| developer | Programming questions over developer sources   | results[] with passages                          |
+| agent     | Multi-source research, unknown or many sites   | JSON (structured data)                           |
+| monitor   | Recurring page checks                          | monitor/check metadata and diffs                 |
+| research  | Paper and GitHub repository research           | research results and repo matches                |
 
 ### Format Selection Guide
 
@@ -494,6 +496,8 @@ Search the web and optionally extract content from search results.
 
 Set `highlights` to `true` to request query-relevant highlights or `false` to keep the original search snippets. Omit it to use the API's default behavior.
 
+Add `"sources": ["alexandria"]` for semantic tool discovery in `data.tools`, optionally mixed with web/news/images. A query is required. Use `firecrawl_find_tools` on the full MCP surface for contextual lookup and progressive disclosure; see [Exchange Tools](#15-exchange-tools). The legacy `exchange` source is normalized to `alexandria`.
+
 For scientific papers, see [Research Tools](#12-research-tools-firecrawl_research_): they search paper abstracts and full text, while `categories: ["research"]` here filters ordinary web results to research-affiliated websites.
 
 **Returns:**
@@ -622,7 +626,6 @@ Starts a crawl job, polls until it reaches a terminal state, and returns the fin
   }
 }
 ```
-
 
 **Returns:**
 
@@ -953,6 +956,133 @@ Search an index built for coding agents. The index covers GitHub issues, merged 
 
 `firecrawl_search` with `categories: ["developer"]` searches the same index beside the web results. Use this tool instead when you want the matched passages, the `skills` filter, or no web results in the response. The search-only endpoint exposes both tools, and the same choice applies there.
 
+### Local shared credentials
+
+For a local stdio server, set `FIRECRAWL_USE_CLI_CREDENTIALS=true` to read the
+credentials saved by `firecrawl login`. Explicit API keys or OAuth tokens still
+win. This option is ignored on HTTP/hosted transports.
+
+```bash
+codex mcp add firecrawl_local --env FIRECRAWL_USE_CLI_CREDENTIALS=true -- firecrawl-mcp
+claude mcp add --scope user firecrawl_local --env FIRECRAWL_USE_CLI_CREDENTIALS=true -- firecrawl-mcp
+```
+
+After rebuilding and linking locally with `npm run build` and `npm link`, these
+entries use the linked build. Start a new MCP session to load updated tools.
+
+### 15. Exchange Tools
+
+Firecrawl Alexandria is a catalogue of data providers reachable through the Firecrawl API with a Firecrawl API key on a team with Alexandria access. Keyless sessions (hosted or local) get `Exchange requires an API key on a team with Exchange access`; `firecrawl_exchange_discover` is not listed for hosted keyless sessions.
+
+**Semantic discovery (`firecrawl_search`):**
+
+```json
+{
+  "name": "firecrawl_search",
+  "arguments": {
+    "query": "podcast conversations about AI agents",
+    "sources": ["web", "alexandria"],
+    "domainTools": true,
+    "limit": 2
+  }
+}
+```
+
+`data.tools` contains complete contracts, including inputs, response fields,
+examples, price, and match provenance. `domainTools: true` adds contextual matches to
+query mentions and result URLs in that same array. Check `warning` for unavailable
+discovery. Search requires a query and does not accept catalogue traversal filters.
+This discovery works on both the full and search-only MCP surfaces.
+
+**Progressive disclosure (`firecrawl_find_tools`, full MCP surface):**
+
+```json
+{
+  "name": "firecrawl_find_tools",
+  "arguments": {
+    "providers": ["particle"],
+    "capabilities": ["podcasts/episodes/search"],
+    "expand": ["options", "response", "examples"],
+    "limit": 2
+  }
+}
+```
+
+Start with no arguments to list providers, a `urls` array for contextual matches,
+or filters for `providers`, `categories`, `groups`, and `capabilities`. `level` is
+inferred when omitted and accepts `providers`, `groups`, or `tools`. `expand`
+selects contract sections at the tools level.
+
+The response's `data.alexandria[0].data` contains `level`, `items`, `total`, and
+`next`. An item's `next` reveals more detail; top-level `next` fetches the next
+page. Both are complete Exchange calls: pass one as `firecrawl_scrape`'s
+`alexandria` argument. Find Tools costs zero credits and uses `/v2/scrape`; it
+does not execute the paid tools it discovers. URLs from page scrapes can also
+be passed to Find Tools.
+
+These controls require the matching Alexandria API deployment. The existing
+`firecrawl_exchange_discover`, `firecrawl_skills_resolve`, and `firecrawl_skill`
+proxy tools remain available for compatibility on the full MCP surface.
+
+**Read a contract (`firecrawl_exchange_discover`):** walk the catalogue or search it.
+
+```json
+{ "name": "firecrawl_exchange_discover", "arguments": {} }
+{ "name": "firecrawl_exchange_discover", "arguments": { "cohort": "finance", "expand": "all" } }
+{ "name": "firecrawl_exchange_discover", "arguments": { "cohort": "finance", "provider": "fred", "capability": "series/observations" } }
+{ "name": "firecrawl_exchange_discover", "arguments": { "q": "balance sheet", "limit": 8 } }
+```
+
+No arguments lists cohorts; `cohort` lists providers (`expand: "all"` inlines their capabilities); `cohort` + `provider` + `capability` returns the full contract (`options`, `returns`, `creditsCost`, `executable`, `exampleQueries`). `q` (with optional `limit`, 1-24) is accepted on the index route only and returns `capabilities` without contracts; a deployment without a semantic index answers `501 semantic_not_configured`.
+
+**Execute (`firecrawl_scrape` with `alexandria`):** pass `alexandria` instead of `url` (exactly one of the two; requestId and timeout may also be supplied). A single call or an array of up to ten calls is accepted.
+
+```json
+{
+  "name": "firecrawl_scrape",
+  "arguments": {
+    "alexandria": [
+      {
+        "provider": "fred",
+        "capability": "series/observations",
+        "options": { "series_id": "CPIAUCSL" }
+      }
+    ]
+  }
+}
+```
+
+**Returns:** `{ success, scrape_id, requestId, data: { alexandria: [...], creditsCost } }`. Each item is either a result (`provider`, `capability`, `creditsCost`, `data`, `records`, `upstreamStatus`) or an `error` with a `code`; the batch never fails as a whole for a provider error and `data.creditsCost` sums the successful items. Exchange error bodies (403 without Exchange access, and 402/409 billing statuses) are relayed in-band with their `code`.
+
+Execution generates one `x-request-id` and returns it on success or failure. Retry
+the identical payload with that `requestId`; do not create a new ID after an
+uncertain outcome. Available credits are checked by the API.
+
+An Alexandria provider whose terms the team has not accepted fails before anything runs with
+HTTP 403 and this body:
+
+```json
+{
+  "success": false,
+  "code": "THIRD_PARTY_DATA_TERMS_REQUIRED",
+  "error": "An organization admin must accept the benzinga provider's terms (version 2026-09-12-placeholder) before this request can run. Accept them at https://www.firecrawl.dev/app/alexandria/benzinga",
+  "requiresAction": {
+    "type": "accept_terms",
+    "terms": "benzinga",
+    "version": "2026-09-12-placeholder",
+    "url": "https://www.firecrawl.dev/app/alexandria/benzinga"
+  }
+}
+```
+
+The tool result relays it as an error with `structuredContent` carrying `code`,
+`status: 403`, `requestId`, the `requiresAction` object unchanged, and
+`next_actions` (`human_action_required` then `retry_same_request`). Accepting
+terms is a legal act by a signed-in organization admin in the dashboard at
+`requiresAction.url`; the MCP server never accepts them and has no tool that
+does. No credits are charged. Once a person confirms acceptance, call the same
+tool again with the identical payload and `requestId`.
+
 ## Logging System
 
 The server includes comprehensive logging:
@@ -1021,3 +1151,8 @@ Thanks to MCP.so and Klavis AI for hosting and [@gstarwd](https://github.com/gst
 ## License
 
 MIT License - see LICENSE file for details
+
+Execution generates one request ID when omitted, sends `x-request-id`, and returns
+`requestId` on success or failure. Reuse it for retries of the identical payload;
+never replace it to bypass a pending or uncertain 409. The API reserves credits
+before execution and rejects insufficient credits before contacting the provider.

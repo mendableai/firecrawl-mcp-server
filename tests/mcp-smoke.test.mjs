@@ -871,14 +871,16 @@ test('stdio transport initializes and lists Firecrawl tools', async (t) => {
   );
 
   const byName = new Map(tools.tools.map((tool) => [tool.name, tool]));
+  // A stdio session with an API key gets the Alexandria-aware instructions,
+  // not the keyless wording.
   assert.match(init.instructions, /firecrawl_scrape retrieves one supplied page/i);
   assert.match(
     init.instructions,
-    /Authorization bearer API key.*including firecrawl_map for site URL discovery/is
+    /Alexandria is a catalogue of data providers.*firecrawl_scrape with alexandria.*executes up to ten capabilities/is
   );
   assert.match(
     init.instructions,
-    /Authorization bearer API key.*firecrawl_agent and firecrawl_agent_status for multi-source research that returns structured data when the URLs are not known/is
+    /THIRD_PARTY_DATA_TERMS_REQUIRED.*requiresAction\.url.*human organization admin must visit/is
   );
   assert.match(
     byName.get('firecrawl_scrape').description,
@@ -943,11 +945,11 @@ test('stdio transport initializes and lists Firecrawl tools', async (t) => {
   );
   assert.match(
     init.instructions,
-    /firecrawl_search with categories: \["research"\] filters ordinary web results to research-affiliated websites/i
+    /firecrawl_search with categories: \["research"\] is a website filter over ordinary web results and reaches different sources/i
   );
   assert.match(
     init.instructions,
-    /Authorization bearer API key.*firecrawl_research_\* for paper-index and repository research/is
+    /firecrawl_research_\* tools search a paper index of abstracts and full text/i
   );
   assert.match(
     byName.get('firecrawl_research_related_papers').description,
