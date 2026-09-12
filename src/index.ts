@@ -2671,8 +2671,8 @@ server.addTool({
   parameters: findToolsSchema,
   execute: async (options, { session }) =>
     executeExchangeCalls(session, {
-      provider: 'firecrawl-contextual-discovery',
-      capability: 'discovery/context',
+      provider: 'firecrawl',
+      capability: 'find-tools',
       options,
     }),
 });

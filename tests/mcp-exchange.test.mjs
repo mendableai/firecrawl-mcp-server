@@ -150,7 +150,7 @@ async function startFakeExchangeApi(options = {}) {
     }
 
     if (req.method === 'POST' && url.pathname === '/v2/scrape') {
-      if (parsedBody.alexandria?.provider === 'firecrawl-contextual-discovery') return json(200, {success:true, data:{creditsCost:0, alexandria:[{provider:'firecrawl-contextual-discovery',capability:'discovery/context',creditsCost:0,data:{level:'tools',items:[],total:4,next:{provider:'firecrawl-contextual-discovery',capability:'discovery/context',options:{...parsedBody.alexandria.options, offset:4}}}}]}});
+      if (parsedBody.alexandria?.provider === 'firecrawl') return json(200, {success:true, data:{creditsCost:0, alexandria:[{provider:'firecrawl',capability:'find-tools',creditsCost:0,data:{level:'tools',items:[],total:4,next:{provider:'firecrawl',capability:'find-tools',options:{...parsedBody.alexandria.options, offset:4}}}}]}});
 
       if (parsedBody?.alexandria?.[0]?.provider === 'locked') {
         return json(403, {
@@ -967,7 +967,7 @@ test('Find Tools uses scrape for contextual lookup, chaining and pagination', as
   const { api, client } = await startStdioWithApi(t);
   const options = {providers: ['particle'], capabilities: ['podcasts/episodes/search'], expand: ['options', 'response'], limit: 2, offset: 2};
   const response = await client.request('tools/call', {name: 'firecrawl_find_tools', arguments: options});
-  const call = {provider: 'firecrawl-contextual-discovery', capability: 'discovery/context', options};
+  const call = {provider: 'firecrawl', capability: 'find-tools', options};
   assert.equal(api.requests[0].url, '/v2/scrape');
   assert.deepEqual(api.requests[0].body.alexandria, call);
   assert.equal(toolText(response).data.creditsCost, 0);
