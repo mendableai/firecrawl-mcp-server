@@ -667,11 +667,11 @@ Check the status and results of an existing crawl job by ID.
 
 Parse local files or hosted upload references with Firecrawl's `/v2/parse` endpoint.
 
-**Best for:** PDFs, Word documents, spreadsheets, HTML files, and other documents that need markdown or structured JSON output. Hosted MCP supports a two-step upload-ref flow; local MCP reads the requested file and uploads it to the configured API, defaulting to the Firecrawl cloud API.
+**Best for:** PDFs, Word documents, spreadsheets, HTML files, and other documents that need markdown or structured JSON output. Hosted MCP supports a two-step upload-ref flow; local MCP requires an explicit API URL before reading and uploading the requested file.
 
 **Not recommended for:** Remote URLs (use scrape), multiple files in one call (call parse once per file), or browser-only actions such as screenshots and clicks.
 
-**Hosted MCP flow:** Hosted MCP cannot read the caller's filesystem directly. Call `firecrawl_parse` with `filePath` to receive a short-lived upload command and `nextToolCall`, upload the file locally, then call `firecrawl_parse` again with the returned `uploadRef`. Minting the hosted upload URL requires Firecrawl auth or keyless eligibility. In local `npx firecrawl-mcp` mode, the server uploads `filePath` to `FIRECRAWL_API_URL` when configured, or to `https://api.firecrawl.dev` when unset, matching Search and Scrape. Both authenticated and eligible keyless calls are supported. Running MCP locally does not perform parsing on the local machine; configure your self-hosted API URL if that is where files should be processed.
+**Hosted MCP flow:** Hosted MCP cannot read the caller's filesystem directly. Call `firecrawl_parse` with `filePath` to receive a short-lived upload command and `nextToolCall`, upload the file locally, then call `firecrawl_parse` again with the returned `uploadRef`. Minting the hosted upload URL requires Firecrawl auth or keyless eligibility. In local `npx firecrawl-mcp` mode, `FIRECRAWL_API_URL` must be explicitly configured before the server reads or uploads `filePath`. There is no default upload destination for local Parse. Both authenticated and eligible keyless calls are supported by the selected API. Running MCP locally does not perform parsing on the local machine. This configuration requirement selects the destination; it does not restrict which files the process can read.
 
 **Usage Example:**
 

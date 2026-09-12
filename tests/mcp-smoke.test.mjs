@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import net from 'node:net';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { assertAgentMetadataPolicy } from '../scripts/agent-metadata-policy.mjs';
@@ -3278,31 +3278,36 @@ test('local Parse preserves job evidence on success and failure and retains invi
 });
 
 
-test('local Parse defaults to the cloud API with and without credentials', async (t) => {
-  const directory = await mkdtemp(join(tmpdir(), 'parse-default-api-'));
+test('local Parse requires an explicit API URL before reading or uploading files', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'parse-api-configuration-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const filePath = join(directory, 'fixture.html');
-  await writeFile(filePath, '<h1>Parsed fixture</h1>');
+  await writeFile(filePath, '<h1>Controlled parse fixture</h1>');
   for (const authenticated of [false, true]) {
     await t.test(`authenticated ${authenticated}`, async (t) => {
       const backend = await startFakeFirecrawlBackend();
       t.after(() => backend.close());
-      const preloadPath = join(directory, `fetch-${authenticated}.mjs`);
-      await writeFile(
-        preloadPath,
-        `
+      const preloadPath = join(directory, `guard-${authenticated}.mjs`);
+      await writeFile(preloadPath, `
+        import fs from 'node:fs/promises';
+        import { syncBuiltinESMExports } from 'node:module';
+        import { resolve } from 'node:path';
+        const originalReadFile = fs.readFile;
+        fs.readFile = (...args) => {
+          if (typeof args[0] === 'string' && resolve(args[0]) === ${JSON.stringify(filePath)}) {
+            throw new Error('Test detected an unconfigured local file read');
+          }
+          return originalReadFile(...args);
+        };
+        syncBuiltinESMExports();
         const originalFetch = globalThis.fetch;
         globalThis.fetch = (url, init) => {
           if (url !== 'https://api.firecrawl.dev/v2/parse') {
             throw new Error('Unexpected outbound URL');
           }
-          return originalFetch(${JSON.stringify(`${backend.url}/v2/parse`)}, {
-            ...init,
-            headers: { ...init.headers, 'x-test-original-url': url },
-          });
+          return originalFetch(${JSON.stringify(`${backend.url}/v2/parse`)}, init);
         };
-      `
-      );
+      `);
       const child = spawnServer({
         FIRECRAWL_API_KEY: authenticated ? 'fc-parse-test' : '',
         FIRECRAWL_OAUTH_TOKEN: '',
@@ -3314,37 +3319,20 @@ test('local Parse defaults to the cloud API with and without credentials', async
       const client = new StdioMcpClient(child);
       await client.request('initialize', {
         capabilities: {},
-        clientInfo: { name: 'parse-default-api-test', version: '0.0.0' },
+        clientInfo: { name: 'parse-api-configuration-test', version: '0.0.0' },
         protocolVersion: '2025-06-18',
       });
       client.notify('notifications/initialized');
-      const tools = await client.request('tools/list');
-      const parse = tools.tools.find((tool) => tool.name === 'firecrawl_parse');
-      assert.ok(parse);
-      assert.match(
-        parse.description,
-        /uploads it.*Firecrawl cloud API when unset/
-      );
-      const result = await client.request('tools/call', {
-        name: 'firecrawl_parse',
-        arguments: { filePath, formats: ['markdown'] },
-      });
-      assert.notEqual(result.isError, true);
-      assert.equal(
-        JSON.parse(result.content[0].text).data.markdown,
-        '# Parsed fixture'
-      );
-      assert.equal(backend.requests.length, 1);
-      const call = backend.requests[0];
-      assert.equal(
-        call.headers['x-test-original-url'],
-        'https://api.firecrawl.dev/v2/parse'
-      );
-      assert.equal(
-        call.headers.authorization,
-        authenticated ? 'Bearer fc-parse-test' : undefined
-      );
-      assert.match(call.raw, /Parsed fixture/);
+      for (const candidate of [filePath, relative(process.cwd(), filePath), join(directory, 'missing.html')]) {
+        const result = await client.request('tools/call', {
+          name: 'firecrawl_parse',
+          arguments: { filePath: candidate, formats: ['markdown'] },
+        });
+        assert.equal(result.isError, true);
+        assert.match(result.content[0].text, /requires.*FIRECRAWL_API_URL/);
+        assert.doesNotMatch(result.content[0].text, /unconfigured local file read|ENOENT/);
+      }
+      assert.equal(backend.requests.length, 0);
     });
   }
 });

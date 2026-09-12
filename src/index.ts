@@ -3174,7 +3174,7 @@ For keyless jobs, optional feedback is available through \`firecrawl_feedback\` 
 
 Parse one supported document into markdown, HTML, links, summary, targeted answers, or JSON matching a schema. Supported inputs include common HTML, PDF, Word, RTF, OpenDocument, and spreadsheet files; PDF parsing can be bounded with \`pdfOptions.maxPages\`.
 
-Local MCP reads \`filePath\` from the server filesystem and uploads it to the configured \`FIRECRAWL_API_URL\`, or the Firecrawl cloud API when unset. Parsing happens on that API server. Hosted MCP uses two calls: first provide \`filePath\` to receive upload instructions, upload locally, then call again with the returned \`uploadRef\`; do not send both fields together. Remote web URLs belong in \`firecrawl_scrape\`.
+Local MCP requires an explicitly configured \`FIRECRAWL_API_URL\` before reading \`filePath\` from the server filesystem and uploading it. Parsing happens on that API server. Hosted MCP uses two calls: first provide \`filePath\` to receive upload instructions, upload locally, then call again with the returned \`uploadRef\`; do not send both fields together. Remote web URLs belong in \`firecrawl_scrape\`.
 
 Set \`redactPII\` to request redaction of personally identifiable information in the returned content. \`zeroDataRetention\` requires an eligible authenticated account; omit it for anonymous keyless use. Returns upload instructions for hosted phase one or parsed document content for the final call.
 `,
@@ -3184,7 +3184,12 @@ Set \`redactPII\` to request redaction of personally identifiable information in
       return executeHostedParse(args as ParseToolArgs, session, log);
     }
 
-    const apiUrl = resolveApiBaseUrl();
+    const apiUrl = process.env.FIRECRAWL_API_URL;
+    if (!apiUrl) {
+      throw new UserError(
+        'Local firecrawl_parse requires FIRECRAWL_API_URL to be explicitly configured before reading or uploading files.'
+      );
+    }
 
     const {
       filePath,
