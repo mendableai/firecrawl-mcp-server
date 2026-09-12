@@ -111,6 +111,7 @@ async function startFakeBackend(options = {}) {
   const {
     apiKeyFromIntrospection = 'fc-from-introspection',
     introspectionAud,
+    searchMetadata,
   } = options;
   const requests = [];
   const server = createServer(async (req, res) => {
@@ -200,6 +201,7 @@ async function startFakeBackend(options = {}) {
               : [{ title: 'Example Domain', url: 'https://example.com/' }],
           },
           id: '00000000-0000-4000-8000-000000000000',
+          ...(searchMetadata ? { metadata: searchMetadata } : {}),
           success: true,
         })
       );
@@ -1084,4 +1086,18 @@ test('companion telemetry follows credential precedence without resolving API ke
     ]
   );
   assert.doesNotMatch(getStdout(), /fc-primary-credential|fco_secondary-credential/);
+});
+
+test('search profile leaves operation requests and metadata unchanged by feedback flags', async (t) => {
+  const metadata = { jobId: '00000000-0000-4000-8000-000000000000', feedback: { message: 'Optional feedback.' } };
+  const backend = await startFakeBackend({ searchMetadata: metadata });
+  t.after(() => backend.close());
+  const { searchPort } = await startHostedServer(t, { FIRECRAWL_API_URL: backend.url, FIRECRAWL_NO_ENDPOINT_FEEDBACK: '1' });
+  const response = await jsonRpc(searchPort, SEARCH_ENDPOINT, { id: 1, method: 'tools/call', headers: { 'x-api-key': 'fc-test' },
+    params: { name: 'firecrawl_search', arguments: { query: 'retry behavior' } } });
+  const message = parseSseJson(await response.text());
+  assert.notEqual(message.result.isError, true);
+  assert.deepEqual(JSON.parse(message.result.content[0].text).metadata, metadata);
+  const call = backend.requests.find(req => req.url === '/v2/search');
+  assert.equal(call.headers['x-firecrawl-no-feedback'], undefined);
 });

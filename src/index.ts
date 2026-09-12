@@ -657,13 +657,13 @@ async function authenticateRequest(
     !process.env.FIRECRAWL_API_KEY &&
     !process.env.FIRECRAWL_API_URL
   ) {
-    // No credential and no self-hosted URL: run in keyless mode. scrape and
-    // search work for free (rate-limited per IP) against the Firecrawl cloud;
-    // every other tool needs an API key and will return Unauthorized.
+    // Without credentials or a custom API URL, use the cloud keyless tools.
     console.error(
-      'No FIRECRAWL_API_KEY or FIRECRAWL_API_URL set — running in keyless mode. ' +
-        'firecrawl_scrape and firecrawl_search are free (rate-limited per IP) against the Firecrawl cloud; ' +
-        'other tools require an API key (get one free at https://firecrawl.dev).'
+      'No FIRECRAWL_API_KEY or FIRECRAWL_API_URL set. Running in keyless mode. ' +
+        'firecrawl_scrape and firecrawl_search use the Firecrawl cloud with usage limits. ' +
+        'Local firecrawl_parse requires FIRECRAWL_API_URL to be explicitly configured before reading or uploading files. ' +
+        'Optional firecrawl_feedback is available when enabled. ' +
+        'Other tools require an API key (get one free at https://firecrawl.dev).'
     );
   }
 
@@ -954,7 +954,7 @@ const openAiAppsChallengeToken = normalizeHeader(
 );
 
 const FULL_PROFILE_INSTRUCTIONS = `Firecrawl provides web search, page retrieval, site URL discovery, multi-page collection, structured page data, monitoring, and multi-source research that returns structured data. Match the requested operation to the tool boundary: firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema, firecrawl_map enumerates URLs under a site without retrieving their content, and firecrawl_agent runs multi-source research and returns structured data when the URLs are not known or the answer spans several sites (an entity plus its fields, a list, a dataset); its result is read with firecrawl_agent_status. For biomedical, life-science, clinical, or arXiv literature, the firecrawl_research_* tools search a paper index of abstracts and full text; firecrawl_search with categories: ["research"] is a website filter over ordinary web results and reaches different sources. For a programming question — code behaviour, a library or framework, an API contract, an error message, or a known bug — firecrawl_developer_search (or firecrawl_search with categories: ["developer"]) searches an index of repositories, GitHub issues, merged pull requests, READMEs, and curated documentation sites. Provide only the required inputs and account for stated network or external side effects.`;
-const KEYLESS_PROFILE_INSTRUCTIONS = `Hosted keyless sessions expose firecrawl_search, firecrawl_scrape, and firecrawl_parse with usage limits. firecrawl_search searches the web. For programming questions, firecrawl_search with categories: ["developer"] searches indexed repositories, GitHub issues, merged pull requests, repository READMEs, and curated documentation sites. For biomedical, life-science, clinical, or arXiv literature, firecrawl_search with categories: ["research"] filters ordinary web results to research-affiliated websites. firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema. firecrawl_parse processes supported local files through its two-phase upload flow. An Authorization bearer API key can provide higher usage limits and expose additional tools, subject to plan, deployment, and team policy, including firecrawl_map for site URL discovery, firecrawl_agent and firecrawl_agent_status for multi-source research that returns structured data when the URLs are not known, and firecrawl_research_* for paper-index and repository research.`;
+const KEYLESS_PROFILE_INSTRUCTIONS = `Keyless sessions expose firecrawl_search, firecrawl_scrape, and firecrawl_parse with usage limits. firecrawl_feedback accepts optional evidence about those jobs without consuming operation quota. firecrawl_search searches the web. For programming questions, firecrawl_search with categories: ["developer"] searches indexed repositories, GitHub issues, merged pull requests, repository READMEs, and curated documentation sites. For biomedical, life-science, clinical, or arXiv literature, firecrawl_search with categories: ["research"] filters ordinary web results to research-affiliated websites. firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema. In local MCP, firecrawl_parse requires FIRECRAWL_API_URL to be explicitly configured before reading or uploading files; parsing happens on that API server. Hosted MCP uses a two-phase upload flow. An Authorization bearer API key can provide higher usage limits and expose additional tools, subject to plan, deployment, and team policy, including firecrawl_map for site URL discovery, firecrawl_agent and firecrawl_agent_status for multi-source research that returns structured data when the URLs are not known, and firecrawl_research_* for paper-index and repository research.`;
 
 // The search surface exposes web/developer/research search only. Its instructions
 // and tool copy describe just those tools and stay neutral about how a client
@@ -1071,6 +1071,7 @@ const KEYLESS_TOOL_NAMES = new Set([
   'firecrawl_scrape',
   'firecrawl_search',
   'firecrawl_parse',
+  'firecrawl_feedback',
 ]);
 
 function isHostedKeylessSession(session?: SessionData): boolean {
@@ -1082,7 +1083,7 @@ function isHostedKeylessSession(session?: SessionData): boolean {
 }
 
 // A stdio client without a cloud credential can use only the keyless tools.
-// Do this at registration time so unsupported feedback tools are not advertised.
+// Apply the keyless tool set at registration time for local sessions.
 function isLocalKeylessStartup(): boolean {
   return (
     process.env.CLOUD_SERVICE !== 'true' &&
@@ -2105,6 +2106,8 @@ server.addTool({
     destructiveHint: false, // Does not modify, delete, or write to external websites.
   },
   description: `
+For keyless jobs, optional feedback is available through \`firecrawl_feedback\` using the returned jobId or Search id. Invitations appear in result metadata. Report only observations already available; feedback never requires additional investigation.
+
 Retrieve and extract content from one supplied URL through Firecrawl. Use this when the request identifies a page and needs its content or defined fields. It can return markdown, HTML, links, screenshots, branding data, a targeted answer, or JSON matching a supplied schema; JSON is useful when the requested result has defined fields, while markdown preserves readable page content.
 
 This tool operates on a known page. For a set of pages use \`firecrawl_crawl\`, and to discover page URLs use \`firecrawl_map\` or \`firecrawl_search\`. Options include JavaScript render delay, cache age, main-content filtering, PII redaction, and lockdown cache-only retrieval. Browser actions may change the live page when interactive actions are enabled.
@@ -2195,13 +2198,15 @@ server.addTool({
     destructiveHint: false, // Query-only; no destructive side effects on external entities.
   },
   description: `
+For keyless jobs, optional feedback is available through \`firecrawl_feedback\` using the returned jobId or Search id. Invitations appear in result metadata. Report only observations already available; feedback never requires additional investigation.
+
 Search web, news, or image sources and return ranked results. Operators include quoted phrases, \`-term\`, \`site:host\`, \`inurl:term\`, \`intitle:term\`, and \`related:host\`; the set is non-exhaustive. \`includeDomains\` and \`excludeDomains\` are mutually exclusive hostname filters; categories limit results to GitHub, research, PDF, or developer sources.
 
 For a programming question, add \`categories: ["developer"]\`. It searches an index of repositories, GitHub issues, merged pull requests, repository READMEs, and curated documentation sites, and returns the hits in \`data.web\` with \`category: "developer"\`.
 
 \`categories: ["research"]\` restricts these web results to research-affiliated websites and returns page snippets. The \`firecrawl_research_*\` tools are a separate surface that searches paper abstracts and full text across biomedical (PubMed, bioRxiv, medRxiv) and arXiv literature.
 
-Each web result is a title, URL, and description, not the page. Add \`scrapeOptions\` to attach page content in the same call; those fetches ignore \`maxAge\`, so use \`firecrawl_scrape\` when you need a live fetch. Returns source-type result groups and usage metadata. Authenticated responses can include an \`id\` for optional search feedback.
+Each web result is a title, URL, and description, not the page. Add \`scrapeOptions\` to attach page content in the same call; those fetches ignore \`maxAge\`, so use \`firecrawl_scrape\` when you need a live fetch. Returns source-type result groups and usage metadata. Keyless responses can include an \`id\` for optional feedback through \`firecrawl_feedback\`. Authenticated Search feedback continues to use \`firecrawl_search_feedback\`.
 `,
   parameters: z
     .object({
@@ -2241,11 +2246,7 @@ Each web result is a title, URL, and description, not the page. Add \`scrapeOpti
     };
     if (isKeylessMode(session)) {
       const json = await keylessPost('/v2/search', searchBody, session);
-      // Search feedback requires an authenticated account. Do not expose its
-      // identifier to keyless clients, where it would invite an unusable call.
-      const keylessResponse = { ...(json ?? {}) };
-      delete keylessResponse.id;
-      return asText(keylessResponse);
+      return asText(json);
     }
     // Call /v2/search through the SDK's HTTP layer (auth + retries) instead
     // of `client.search()` so we preserve the full response envelope. The
@@ -2384,6 +2385,12 @@ async function keylessPost(
             : undefined,
       });
       throw new UserError(String(payload.message), payload);
+    }
+    if (json?.metadata?.jobId) {
+      throw new UserError(
+        json.error || `Firecrawl request failed (HTTP ${response.status})`,
+        json
+      );
     }
     throw new Error(
       json?.error || `Firecrawl request failed (HTTP ${response.status})`
@@ -2653,13 +2660,19 @@ Eligibility is limited to successful searches within the feedback age window. Th
 
 if (ENDPOINT_FEEDBACK_DISABLED) {
   console.error(
-    '[firecrawl-mcp] Endpoint feedback tool disabled by FIRECRAWL_NO_ENDPOINT_FEEDBACK; firecrawl_feedback will not be registered.'
+    '[firecrawl-mcp] Authenticated endpoint feedback tool disabled by FIRECRAWL_NO_ENDPOINT_FEEDBACK. Keyless feedback remains available.'
   );
 }
 
-if (!ENDPOINT_FEEDBACK_DISABLED && !isLocalKeylessStartup()) {
+if (
+  !ENDPOINT_FEEDBACK_DISABLED ||
+  isLocalKeylessStartup() ||
+  process.env.CLOUD_SERVICE === 'true'
+) {
   server.addTool({
     name: 'firecrawl_feedback',
+    canList: (session: SessionData) =>
+      !ENDPOINT_FEEDBACK_DISABLED || isKeylessMode(session),
     annotations: {
       title: 'Send feedback on a Firecrawl job',
       readOnlyHint: false, // POSTs structured feedback for a completed job to /v2/feedback.
@@ -2667,14 +2680,35 @@ if (!ENDPOINT_FEEDBACK_DISABLED && !isLocalKeylessStartup()) {
       destructiveHint: false, // Additive only; submits ratings and notes, does not delete jobs or external content.
     },
     description: `
-Submit concise quality feedback for a completed search, scrape, parse, or map job. Provide the endpoint, job ID, rating, and relevant issue codes or small contextual fields; omit large page contents and raw outputs.
+Submit optional quality feedback for a search, scrape, parse, or map job. Authenticated callers can provide issue codes or small contextual fields with the endpoint, job ID, and rating. Omit large page contents and raw outputs.
 
-Returns submission status, feedback ID, and accounting fields.
+Keyless Search, Scrape, and Parse feedback requires task, assessment, rating, and 1-20 observations. Task, assessment, and each detail contain 10-2000 characters. Each observation includes kind, detail, and basis: output, source_comparison, or expectation. A source_comparison also requires comparison: {reference, detail}.
+
+Search: useful and irrelevant require a one-based position within the delivered group. source names the response group the position refers to: web, images, or news. It is required only when the job requested multiple sources; otherwise it defaults to web. The position must exist in that requested group. irrelevant requires reason: aggregator_over_official, off_topic, stale, wrong_content_type, snippet_misleading, or blocked_or_paywalled. vertical is required on missing and optional on useful/irrelevant: web_general, social, business, research, developer, news, government, finance, or other. missing may include topic (up to 200 characters) and knownSources (up to 20 HTTP(S) URLs). Do not submit engine attribution; it comes from the stored category tag at that position.
+
+Scrape: kind correct, wrong_success, incomplete, or incorrect. wrong_success requires reason: blocked_shell, login_required, paywall, empty, wrong_page, stale, or wrong_locale. incomplete requires reason: partial_content, dynamic_content, pagination, main_content_stripped, or format_lost. incorrect requires reason: wrong, hallucinated, or missing_fields. correct has no reason. Optional location is up to 200 characters. No retryOutcome. Hard-failed Scrape jobs receive no feedback invitation.
+
+Parse: docClass is required once per submission: born_digital, scanned, mixed, or unknown. Observation kind: correct, text_ocr, table, formula, chart_figure, reading_order, headers_footers, headings_formatting, completeness, images_dropped, or incorrect. text_ocr requires reason: misread_chars, garbled, or missing_text. table requires reason: structure, cells_glued, or digits. completeness requires reason: pages_missing, truncated_at_max_pages, or sections_dropped. incorrect requires reason: wrong, hallucinated, or missing_fields. Other kinds have no reason subtype. Optional page is a one-based positive integer.
+
+Scrape and Parse: format must be a format type the job requested. It is required for output and source_comparison observations when multiple formats were requested; optional for expectation observations and single-format jobs. All observations retain detail and basis; source_comparison requires comparison: {reference, detail}.
+
+Use only evidence already available. Do not guess missing content, diagnose causes, or investigate further. One accepted submission per keyless identity per UTC day, shared across Search, Scrape, Parse, and all clients. Feedback remains available after operation quota exhaustion and does not restore quota. Returns submission status and feedback ID. Authenticated feedback retains its existing fields.
 `,
     parameters: z.object({
       endpoint: z.enum(['search', 'scrape', 'parse', 'map']),
       jobId: z.string().uuid('jobId must be the UUID returned by Firecrawl'),
       rating: z.enum(['good', 'bad', 'partial']),
+      task: z.string().min(10).max(2000).optional(),
+      assessment: z.string().min(10).max(2000).optional(),
+      docClass: z
+        .enum(['born_digital', 'scanned', 'mixed', 'unknown'])
+        .optional()
+        .describe('Required once per keyless Parse submission.'),
+      observations: z
+        .array(z.record(z.string(), z.unknown()))
+        .min(1)
+        .max(20)
+        .optional(),
       issues: z.array(feedbackIssueSchema).max(20).optional(),
       tags: z.array(feedbackIssueSchema).max(20).optional(),
       note: z.string().max(4000).optional(),
@@ -2686,10 +2720,19 @@ Returns submission status, feedback ID, and accounting fields.
       metadata: z.record(z.string(), z.unknown()).optional(),
     }),
     execute: async (args: unknown, { session, log }): Promise<string> => {
+      if (ENDPOINT_FEEDBACK_DISABLED && !isKeylessMode(session)) {
+        throw new UserError(
+          'Endpoint feedback is disabled for authenticated sessions.'
+        );
+      }
       const {
         endpoint,
         jobId,
         rating,
+        task,
+        assessment,
+        docClass,
+        observations,
         issues,
         tags,
         note,
@@ -2703,6 +2746,10 @@ Returns submission status, feedback ID, and accounting fields.
         endpoint: 'search' | 'scrape' | 'parse' | 'map';
         jobId: string;
         rating: 'good' | 'bad' | 'partial';
+        task?: string;
+        assessment?: string;
+        docClass?: 'born_digital' | 'scanned' | 'mixed' | 'unknown';
+        observations?: Record<string, unknown>[];
         issues?: string[];
         tags?: string[];
         note?: string;
@@ -2722,14 +2769,27 @@ Returns submission status, feedback ID, and accounting fields.
       const credential = credentialForOutboundRequest(session);
       if (credential) {
         headers['Authorization'] = `Bearer ${credential}`;
-      } else if (process.env.CLOUD_SERVICE === 'true') {
-        throw new Error('Unauthorized: missing API key for feedback.');
+      } else if (isHostedKeylessSession(session)) {
+        if (!session?.keylessClientIp || !process.env.KEYLESS_PROXY_SECRET) {
+          return asText({
+            success: false,
+            error: 'Feedback requires a trusted client identity.',
+            retryable: false,
+          });
+        }
+        headers['x-firecrawl-keyless-ip'] = session.keylessClientIp;
+        headers['x-firecrawl-keyless-secret'] =
+          process.env.KEYLESS_PROXY_SECRET;
       }
 
       const body = removeEmptyTopLevel({
         endpoint,
         jobId,
         rating,
+        task,
+        assessment,
+        docClass,
+        observations,
         issues,
         tags,
         note,
@@ -3126,9 +3186,11 @@ server.addTool({
     destructiveHint: false, // Read-only parsing; no deletion or writes to the source file.
   },
   description: `
+For keyless jobs, optional feedback is available through \`firecrawl_feedback\` using the returned jobId or Search id. Invitations appear in result metadata. Report only observations already available; feedback never requires additional investigation.
+
 Parse one supported document into markdown, HTML, links, summary, targeted answers, or JSON matching a schema. Supported inputs include common HTML, PDF, Word, RTF, OpenDocument, and spreadsheet files; PDF parsing can be bounded with \`pdfOptions.maxPages\`.
 
-Local MCP reads \`filePath\` from the server filesystem. Hosted MCP uses two calls: first provide \`filePath\` to receive upload instructions, upload locally, then call again with the returned \`uploadRef\`; do not send both fields together. Remote web URLs belong in \`firecrawl_scrape\`.
+Local MCP requires an explicitly configured \`FIRECRAWL_API_URL\` before reading \`filePath\` from the server filesystem and uploading it. Parsing happens on that API server. Hosted MCP uses two calls: first provide \`filePath\` to receive upload instructions, upload locally, then call again with the returned \`uploadRef\`; do not send both fields together. Remote web URLs belong in \`firecrawl_scrape\`.
 
 Set \`redactPII\` to request redaction of personally identifiable information in the returned content. \`zeroDataRetention\` requires an eligible authenticated account; omit it for anonymous keyless use. Returns upload instructions for hosted phase one or parsed document content for the final call.
 `,
@@ -3140,8 +3202,8 @@ Set \`redactPII\` to request redaction of personally identifiable information in
 
     const apiUrl = process.env.FIRECRAWL_API_URL;
     if (!apiUrl) {
-      throw new Error(
-        'firecrawl_parse requires FIRECRAWL_API_URL to be set to a self-hosted Firecrawl API instance.'
+      throw new UserError(
+        'Local firecrawl_parse requires FIRECRAWL_API_URL to be explicitly configured before reading or uploading files.'
       );
     }
 
@@ -3173,7 +3235,9 @@ Set \`redactPII\` to request redaction of personally identifiable information in
     form.append('file', blob, filename);
     form.append('options', JSON.stringify(optionsPayload));
 
-    const headers: Record<string, string> = { ...ORIGIN_HEADERS };
+    const headers: Record<string, string> = {
+      ...ORIGIN_HEADERS,
+    };
     const credential = credentialForOutboundRequest(session);
     if (credential) {
       headers['Authorization'] = `Bearer ${credential}`;
@@ -3193,17 +3257,24 @@ Set \`redactPII\` to request redaction of personally identifiable information in
     });
 
     const responseText = await response.text();
+    let result: any;
+    try {
+      result = JSON.parse(responseText);
+    } catch {
+      result = undefined;
+    }
     if (!response.ok) {
+      if (result?.metadata?.jobId) {
+        throw new UserError(
+          result.error || `Parse request failed (HTTP ${response.status})`,
+          result
+        );
+      }
       throw new Error(
         `Parse request failed with status ${response.status}: ${responseText}`
       );
     }
-
-    try {
-      return asText(JSON.parse(responseText));
-    } catch {
-      return responseText;
-    }
+    return result === undefined ? responseText : asText(result);
   },
 });
 
