@@ -1088,7 +1088,7 @@ test('companion telemetry follows credential precedence without resolving API ke
   assert.doesNotMatch(getStdout(), /fc-primary-credential|fco_secondary-credential/);
 });
 
-test('search profile honors feedback opt-out and preserves its job reference', async (t) => {
+test('search profile leaves operation requests and metadata unchanged by feedback flags', async (t) => {
   const metadata = { jobId: '00000000-0000-4000-8000-000000000000', feedback: { message: 'Optional feedback.' } };
   const backend = await startFakeBackend({ searchMetadata: metadata });
   t.after(() => backend.close());
@@ -1097,7 +1097,7 @@ test('search profile honors feedback opt-out and preserves its job reference', a
     params: { name: 'firecrawl_search', arguments: { query: 'retry behavior' } } });
   const message = parseSseJson(await response.text());
   assert.notEqual(message.result.isError, true);
-  assert.deepEqual(JSON.parse(message.result.content[0].text).metadata, { jobId: metadata.jobId });
+  assert.deepEqual(JSON.parse(message.result.content[0].text).metadata, metadata);
   const call = backend.requests.find(req => req.url === '/v2/search');
-  assert.equal(call.headers['x-firecrawl-no-feedback'], '1');
+  assert.equal(call.headers['x-firecrawl-no-feedback'], undefined);
 });

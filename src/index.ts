@@ -1483,12 +1483,7 @@ function createClient(apiKey?: string): FirecrawlApp {
     config.apiKey = apiKey;
   }
 
-  const client = new FirecrawlApp(config);
-  Object.assign(
-    (client as any).http.instance.defaults.headers.common,
-    feedbackPreferenceHeaders()
-  );
-  return client;
+  return new FirecrawlApp(config);
 }
 
 const ORIGIN = 'mcp-fastmcp';
@@ -1917,7 +1912,6 @@ async function apiPostJson(
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
-      ...feedbackPreferenceHeaders(),
     },
     body: JSON.stringify(body),
   });
@@ -1936,7 +1930,7 @@ async function apiPostJson(
       response.status
     );
   }
-  return filterFeedbackInvitation(parsed);
+  return parsed;
 }
 
 async function apiPostJsonForSession(
@@ -2111,7 +2105,7 @@ server.addTool({
     destructiveHint: false, // Does not modify, delete, or write to external websites.
   },
   description: `
-Optional feedback is available through \`firecrawl_feedback\` using the returned jobId or Search id. Invitations appear in result metadata. Report only observations already available; feedback never requires additional investigation.
+For keyless jobs, optional feedback is available through \`firecrawl_feedback\` using the returned jobId or Search id. Invitations appear in result metadata. Report only observations already available; feedback never requires additional investigation.
 
 Retrieve and extract content from one supplied URL through Firecrawl. Use this when the request identifies a page and needs its content or defined fields. It can return markdown, HTML, links, screenshots, branding data, a targeted answer, or JSON matching a supplied schema; JSON is useful when the requested result has defined fields, while markdown preserves readable page content.
 
@@ -2153,7 +2147,7 @@ Returns the selected content formats and page metadata.
       ...cleaned,
       origin: ORIGIN,
     } as any);
-    return asText(filterFeedbackInvitation(res));
+    return asText(res);
   },
 });
 
@@ -2203,7 +2197,7 @@ server.addTool({
     destructiveHint: false, // Query-only; no destructive side effects on external entities.
   },
   description: `
-Optional feedback is available through \`firecrawl_feedback\` using the returned jobId or Search id. Invitations appear in result metadata. Report only observations already available; feedback never requires additional investigation.
+For keyless jobs, optional feedback is available through \`firecrawl_feedback\` using the returned jobId or Search id. Invitations appear in result metadata. Report only observations already available; feedback never requires additional investigation.
 
 Search web, news, or image sources and return ranked results. Operators include quoted phrases, \`-term\`, \`site:host\`, \`inurl:term\`, \`intitle:term\`, and \`related:host\`; the set is non-exhaustive. \`includeDomains\` and \`excludeDomains\` are mutually exclusive hostname filters; categories limit results to GitHub, research, PDF, or developer sources.
 
@@ -2211,7 +2205,7 @@ For a programming question, add \`categories: ["developer"]\`. It searches an in
 
 \`categories: ["research"]\` restricts these web results to research-affiliated websites and returns page snippets. The \`firecrawl_research_*\` tools are a separate surface that searches paper abstracts and full text across biomedical (PubMed, bioRxiv, medRxiv) and arXiv literature.
 
-Each web result is a title, URL, and description, not the page. Add \`scrapeOptions\` to attach page content in the same call; those fetches ignore \`maxAge\`, so use \`firecrawl_scrape\` when you need a live fetch. Returns source-type result groups and usage metadata. Responses can include an \`id\` for optional feedback through \`firecrawl_feedback\`.
+Each web result is a title, URL, and description, not the page. Add \`scrapeOptions\` to attach page content in the same call; those fetches ignore \`maxAge\`, so use \`firecrawl_scrape\` when you need a live fetch. Returns source-type result groups and usage metadata. Keyless responses can include an \`id\` for optional feedback through \`firecrawl_feedback\`. Authenticated Search feedback continues to use \`firecrawl_search_feedback\`.
 `,
   parameters: z
     .object({
@@ -2259,7 +2253,7 @@ Each web result is a title, URL, and description, not the page. Add \`scrapeOpti
     // supports the optional authenticated `firecrawl_search_feedback` workflow.
     const client = getClient(session);
     const httpRes = await (client as any).http.post('/v2/search', searchBody);
-    return asText(filterFeedbackInvitation(httpRes?.data ?? {}));
+    return asText(httpRes?.data ?? {});
   },
 });
 
@@ -2338,24 +2332,6 @@ function isKeylessMode(session?: SessionData): boolean {
   return !process.env.FIRECRAWL_API_URL;
 }
 
-function filterFeedbackInvitation(json: any): any {
-  if (!ENDPOINT_FEEDBACK_DISABLED || !json || typeof json !== 'object')
-    return json;
-  const omitInvitation = (metadata: any) => {
-    if (!metadata || typeof metadata !== 'object') return metadata;
-    const rest = { ...metadata };
-    delete rest.feedback;
-    return rest;
-  };
-  return {
-    ...json,
-    ...(json.metadata ? { metadata: omitInvitation(json.metadata) } : {}),
-    ...(json.data?.metadata
-      ? { data: { ...json.data, metadata: omitInvitation(json.data.metadata) } }
-      : {}),
-  };
-}
-
 async function keylessPost(
   path: string,
   body: Record<string, unknown>,
@@ -2380,7 +2356,6 @@ async function keylessPost(
   const headers: Record<string, string> = {
     ...ORIGIN_HEADERS,
     'Content-Type': 'application/json',
-    ...feedbackPreferenceHeaders(),
   };
   // Forward the real client IP (secret-authenticated) when proxying keyless
   // requests through the hosted MCP, so the API rate-limits per real IP.
@@ -2393,9 +2368,7 @@ async function keylessPost(
     headers,
     body: JSON.stringify(body),
   });
-  const json: any = filterFeedbackInvitation(
-    await response.json().catch(() => ({}))
-  );
+  const json: any = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (isKeylessMode(session) && response.status === 429) {
       // The API normally supplies requests|credits. Preserve a structured,
@@ -2542,12 +2515,6 @@ const ENDPOINT_FEEDBACK_DISABLED = feedbackEnvEnabled(
   'FIRECRAWL_DISABLE_ENDPOINT_FEEDBACK'
 );
 
-function feedbackPreferenceHeaders(): Record<string, string> {
-  return ENDPOINT_FEEDBACK_DISABLED
-    ? { 'x-firecrawl-no-feedback': '1' }
-    : {};
-}
-
 if (SEARCH_FEEDBACK_DISABLED) {
   console.error(
     '[firecrawl-mcp] Search feedback tool disabled by FIRECRAWL_NO_SEARCH_FEEDBACK; firecrawl_search_feedback will not be registered.'
@@ -2692,13 +2659,19 @@ Eligibility is limited to successful searches within the feedback age window. Th
 
 if (ENDPOINT_FEEDBACK_DISABLED) {
   console.error(
-    '[firecrawl-mcp] Endpoint feedback tool disabled by FIRECRAWL_NO_ENDPOINT_FEEDBACK; firecrawl_feedback will not be registered.'
+    '[firecrawl-mcp] Authenticated endpoint feedback tool disabled by FIRECRAWL_NO_ENDPOINT_FEEDBACK. Keyless feedback remains available.'
   );
 }
 
-if (!ENDPOINT_FEEDBACK_DISABLED) {
+if (
+  !ENDPOINT_FEEDBACK_DISABLED ||
+  isLocalKeylessStartup() ||
+  process.env.CLOUD_SERVICE === 'true'
+) {
   server.addTool({
     name: 'firecrawl_feedback',
+    canList: (session: SessionData) =>
+      !ENDPOINT_FEEDBACK_DISABLED || isKeylessMode(session),
     annotations: {
       title: 'Send feedback on a Firecrawl job',
       readOnlyHint: false, // POSTs structured feedback for a completed job to /v2/feedback.
@@ -2734,6 +2707,11 @@ Use only evidence already available. Do not guess missing content, diagnose caus
       metadata: z.record(z.string(), z.unknown()).optional(),
     }),
     execute: async (args: unknown, { session, log }): Promise<string> => {
+      if (ENDPOINT_FEEDBACK_DISABLED && !isKeylessMode(session)) {
+        throw new UserError(
+          'Endpoint feedback is disabled for authenticated sessions.'
+        );
+      }
       const {
         endpoint,
         jobId,
@@ -3192,7 +3170,7 @@ server.addTool({
     destructiveHint: false, // Read-only parsing; no deletion or writes to the source file.
   },
   description: `
-Optional feedback is available through \`firecrawl_feedback\` using the returned jobId or Search id. Invitations appear in result metadata. Report only observations already available; feedback never requires additional investigation.
+For keyless jobs, optional feedback is available through \`firecrawl_feedback\` using the returned jobId or Search id. Invitations appear in result metadata. Report only observations already available; feedback never requires additional investigation.
 
 Parse one supported document into markdown, HTML, links, summary, targeted answers, or JSON matching a schema. Supported inputs include common HTML, PDF, Word, RTF, OpenDocument, and spreadsheet files; PDF parsing can be bounded with \`pdfOptions.maxPages\`.
 
@@ -3238,7 +3216,6 @@ Set \`redactPII\` to request redaction of personally identifiable information in
 
     const headers: Record<string, string> = {
       ...ORIGIN_HEADERS,
-      ...feedbackPreferenceHeaders(),
     };
     const credential = credentialForOutboundRequest(session);
     if (credential) {
@@ -3261,7 +3238,7 @@ Set \`redactPII\` to request redaction of personally identifiable information in
     const responseText = await response.text();
     let result: any;
     try {
-      result = filterFeedbackInvitation(JSON.parse(responseText));
+      result = JSON.parse(responseText);
     } catch {
       result = undefined;
     }
@@ -3363,7 +3340,7 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
       log.info('Searching', { query: searchQuery });
       const client = getClientFn(session);
       const httpRes = await (client as any).http.post('/v2/search', searchBody);
-      return asText(filterFeedbackInvitation(httpRes?.data ?? {}));
+      return asText(httpRes?.data ?? {});
     },
   });
 }
