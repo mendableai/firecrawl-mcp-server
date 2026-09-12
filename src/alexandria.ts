@@ -1,10 +1,6 @@
 import { z } from 'zod';
 
-const catalogueTypes = [
-  'alexandria',
-  'exchange-providers',
-  'exchange',
-] as const;
+const catalogueTypes = ['alexandria', 'exchange'] as const;
 export const searchSourceSchema = z.union([
   z.enum(['web', 'images', 'news', ...catalogueTypes]),
   z
@@ -58,4 +54,4 @@ export const findToolsSchema = z
   .strict();
 
 export const ALEXANDRIA_INSTRUCTIONS =
-  'Use firecrawl_search with a query and sources ["alexandria"] to find relevant tool contracts, or mix with web/news/images. Contracts are in data.tools, including inputs, response fields, examples, creditsCost, matchedBy and matchedUrls. skills:true adds domain-matched tools to the same array. Search always requires a query. Use Find Tools for contextual lookup and progressive disclosure by URL, provider, category, group or capability. Discovery is free; web search and provider execution have their own charges. Access follows the authenticated team policy.';
+  'Use firecrawl_search with a query and sources ["alexandria"] to find relevant tool contracts, or mix with web/news/images. Contracts are in data.tools, including inputs, response fields, examples, creditsCost, matchedBy and matchedUrls. domainTools:true adds domain-matched tools to the same array. Search always requires a query. Use Find Tools for contextual lookup and progressive disclosure by URL, provider, category, group or capability. Discovery is free; web search and provider execution have their own charges. Access follows the authenticated team policy.';

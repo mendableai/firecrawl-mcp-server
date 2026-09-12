@@ -897,7 +897,7 @@ const searchToolBaseFields = {
     .string()
     .min(1)
     .describe('Query for semantic search; use Find Tools for catalogue lookup.'),
-  skills: z
+  domainTools: z
     .boolean()
     .optional()
     .describe('Include contextual tool matches for the query and result URLs.'),
@@ -1917,6 +1917,12 @@ const scrapeToolParamsSchema = scrapeParamsSchema
       .describe(
         'Execute Firecrawl Exchange capabilities instead of scraping a URL. Exactly one of url or exchange.'
       ),
+    domainTools: z
+      .boolean()
+      .optional()
+      .describe(
+        'URL mode only: include domain-matched Firecrawl Exchange tools for the page in data.tools.'
+      ),
   })
   .refine(
     (args) => Boolean(args.url) !== Boolean(args.exchange),
@@ -2333,6 +2339,10 @@ Firecrawl may reuse recently indexed content instead of refetching the page, and
 Returns the selected content formats and page metadata.
 
 Exchange mode: pass \`exchange\` (one \`{provider, capability, options}\` object or an array of 1-10) instead of \`url\` to execute catalogued Firecrawl Exchange capabilities found through \`firecrawl_search\` sources \`alexandria\` or \`firecrawl_exchange_discover\`. The optional requestId identifies one logical execution: reuse the returned ID for retries of the identical payload, never a new ID to bypass pending or uncertain execution. Only timeout also applies in this mode. Returns \`{ success, scrape_id, data: { exchange: [...], creditsCost } }\` where each item is a per-capability result (\`data\`, \`records\`, \`creditsCost\`) or an \`error\` with a code; \`data.creditsCost\` is the sum of the successful items. Exchange needs an API key on a team with Exchange access.
+
+URL mode only: set \`domainTools: true\` to also return domain-matched Firecrawl Exchange tools for the page in \`data.tools\`.
+
+Exchange execution errors relay a \`code\` and \`chargeId\`: \`request_in_flight\` (409) retry the same requestId later; \`request_unresolved\` (503) keep the requestId for reconciliation, never mint a new one; \`duplicate_request\` (409) the requestId belongs to a different payload; \`unknown_provider\` (404), \`insufficient_credits\` (402), and \`billing_unavailable\` (503) mean nothing executed.
 `,
   parameters: scrapeToolParamsSchema,
   execute: async (args: unknown, { session, log }): Promise<string> => {
@@ -2483,7 +2493,8 @@ ${ALEXANDRIA_INSTRUCTIONS}
       origin: ORIGIN,
     };
     const exchangeSource = hasAlexandria(searchBody.sources);
-    if (exchangeSource || searchBody.skills) assertExchangeCredential(session);
+    if (exchangeSource || searchBody.domainTools)
+      assertExchangeCredential(session);
     if (isKeylessMode(session)) {
       const json = await keylessPost('/v2/search', searchBody, session);
       // Search feedback requires an authenticated account. Do not expose its
@@ -3625,7 +3636,7 @@ Search web and specialized indexes, returning ranked results. Each web result is
 
 For a programming question, add \`categories: ["developer"]\`. It searches an index of repositories, GitHub issues, merged pull requests, repository READMEs, and curated documentation sites, and returns the hits in \`data.web\` with \`category: "developer"\`.
 
-\`sources: ["alexandria"]\` returns complete tool contracts in \`data.tools\`. \`skills: true\` adds domain-matched contracts to that array. Read warning when discovery is unavailable.
+\`sources: ["alexandria"]\` returns complete tool contracts in \`data.tools\`. \`domainTools: true\` adds domain-matched contracts to that array. Read warning when discovery is unavailable.
 
 Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
 `,
@@ -3653,10 +3664,10 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
         categories,
         highlights,
         enterprise,
-        skills,
+        domainTools,
       } = args as {
         query?: string;
-        skills?: boolean;
+        domainTools?: boolean;
         includeDomains?: string[];
         excludeDomains?: string[];
         limit?: number;
@@ -3688,14 +3699,14 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
           categories,
           highlights,
           enterprise,
-          skills,
+          domainTools,
         }),
         origin: ORIGIN,
       };
 
       log.info('Searching', { query: searchQuery });
       const exchangeSource = hasAlexandria(sources);
-      if (exchangeSource || searchBody.skills)
+      if (exchangeSource || searchBody.domainTools)
         assertExchangeCredential(session);
       const client = getClientFn(session);
       const postSearch = () =>

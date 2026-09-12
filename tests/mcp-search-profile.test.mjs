@@ -1128,9 +1128,9 @@ test('search-only surface rejects catalogue browsing and preserves semantic plus
   const invalid = parseSseJson(await (await call({sources:[{type:'alexandria',mode:'browse'}]})).text());
   assert.ok(invalid.error || invalid.result?.isError);
   assert.equal(backend.requests.filter(r=>r.url==='/v2/search').length, 0);
-  const valid = parseSseJson(await (await call({query:'podcast episodes',sources:['alexandria'],skills:true})).text());
+  const valid = parseSseJson(await (await call({query:'podcast episodes',sources:['alexandria'],domainTools:true})).text());
   assert.ok(!valid.error && !valid.result?.isError, JSON.stringify(valid));
   const sent = backend.requests.find(r=>r.url==='/v2/search').body;
   assert.deepEqual(sent.sources,['alexandria']);
-  assert.equal(sent.skills,true);
+  assert.equal(sent.domainTools,true);
 });

@@ -183,6 +183,14 @@ async function startFakeExchangeApi(options = {}) {
           },
         });
       }
+      if (parsedBody?.url) {
+        return json(200, {
+          success: true,
+          data: parsedBody.domainTools
+            ? { markdown: '# hi', tools: [CAPABILITY_HIT] }
+            : { markdown: '# hi' },
+        });
+      }
       return json(400, { success: false, error: 'url is required' });
     }
 
@@ -514,6 +522,21 @@ test('firecrawl_scrape with exchange posts the v2 batch and returns the envelope
   assert.equal(payload.data.exchange[0].creditsCost, 1);
   assert.equal(payload.data.exchange[0].records, 1);
   assert.equal(payload.data.exchange[1].error.code, 'capability_not_found');
+});
+
+test('firecrawl_scrape with domainTools sends domainTools and passes data.tools through', async (t) => {
+  const { api, client } = await startStdioWithApi(t);
+
+  const result = await client.request('tools/call', {
+    arguments: { url: 'https://example.com', domainTools: true },
+    name: 'firecrawl_scrape',
+  });
+
+  assert.equal(api.requests.length, 1);
+  assert.equal(api.requests[0].url, '/v2/scrape');
+  assert.equal(api.requests[0].body.domainTools, true);
+  const payload = toolText(result);
+  assert.deepEqual(payload.tools, [CAPABILITY_HIT]);
 });
 
 test('firecrawl_scrape rejects url with exchange, neither, extra options, and oversized batches without calling the API', async (t) => {

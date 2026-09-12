@@ -982,14 +982,14 @@ Firecrawl Exchange is a catalogue of data providers reachable through the Firecr
   "arguments": {
     "query": "podcast conversations about AI agents",
     "sources": ["web", "alexandria"],
-    "skills": true,
+    "domainTools": true,
     "limit": 2
   }
 }
 ```
 
 `data.tools` contains complete contracts, including inputs, response fields,
-examples, price, and match provenance. `skills: true` adds contextual matches to
+examples, price, and match provenance. `domainTools: true` adds contextual matches to
 query mentions and result URLs in that same array. Check `warning` for unavailable
 discovery. Search requires a query and does not accept catalogue traversal filters.
 This discovery works on both the full and search-only MCP surfaces.
