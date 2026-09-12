@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { assertAgentMetadataPolicy } from '../scripts/agent-metadata-policy.mjs';
 
 const EXCHANGE_KEY_REQUIRED_MESSAGE =
-  'Exchange requires an API key on a team with Exchange access';
+  'Alexandria requires an API key on a team with Alexandria access';
 const KEYLESS_TOOL_MESSAGE =
   'This tool needs a Firecrawl account.\n\nFix: Create an API key at https://www.firecrawl.dev/app/api-keys, then:\n- Set the header: Authorization: Bearer YOUR_API_KEY on https://mcp.firecrawl.dev/v2/mcp\nThen start a new session.';
 

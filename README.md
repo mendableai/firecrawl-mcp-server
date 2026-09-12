@@ -972,7 +972,7 @@ entries use the linked build. Start a new MCP session to load updated tools.
 
 ### 15. Exchange Tools
 
-Firecrawl Exchange is a catalogue of data providers reachable through the Firecrawl API with a Firecrawl API key on a team with Exchange access. Keyless sessions (hosted or local) get `Exchange requires an API key on a team with Exchange access`; `firecrawl_exchange_discover` is not listed for hosted keyless sessions.
+Firecrawl Alexandria is a catalogue of data providers reachable through the Firecrawl API with a Firecrawl API key on a team with Alexandria access. Keyless sessions (hosted or local) get `Exchange requires an API key on a team with Exchange access`; `firecrawl_exchange_discover` is not listed for hosted keyless sessions.
 
 **Semantic discovery (`firecrawl_search`):**
 

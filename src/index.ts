@@ -942,7 +942,7 @@ const SEARCH_DOMAINS_CONFLICT_MESSAGE =
 // by an API key, so keyless and unauthenticated sessions are refused here
 // with an explanatory message instead of an opaque upstream 401/403.
 const EXCHANGE_KEY_REQUIRED_MESSAGE =
-  'Exchange requires an API key on a team with Exchange access';
+  'Alexandria requires an API key on a team with Alexandria access';
 const EXCHANGE_MAX_CALLS = 10;
 
 const exchangeCallSchema = z.object({
@@ -1175,7 +1175,7 @@ async function relayExchangeError(
     const message =
       typeof data?.error === 'string'
         ? data.error
-        : `Exchange request failed (HTTP ${response.status})`;
+        : `Alexandria request failed (HTTP ${response.status})`;
     throw new UserError(message, {
       code: typeof data?.code === 'string' ? data.code : 'exchange_error',
       status: response.status,
@@ -2019,7 +2019,7 @@ const scrapeToolParamsSchema = scrapeParamsSchema
       .boolean()
       .optional()
       .describe(
-        'URL mode only: include domain-matched Firecrawl Exchange tools for the page in data.tools.'
+        'URL mode only: include domain-matched Alexandria tools for the page in data.tools.'
       ),
   })
   .refine(
@@ -2438,9 +2438,9 @@ Returns the selected content formats and page metadata.
 
 Alexandria mode: pass \`alexandria\` (one \`{provider, capability, options}\` object or an array of 1-10) instead of \`url\` to execute catalogued Firecrawl Exchange capabilities found through \`firecrawl_search\` sources \`alexandria\` or \`firecrawl_exchange_discover\`. The optional requestId identifies one logical execution: reuse the returned ID for retries of the identical payload, never a new ID to bypass pending or uncertain execution. Only timeout also applies in this mode. Returns \`{ success, scrape_id, data: { alexandria: [...], creditsCost } }\` where each item is a per-capability result (\`data\`, \`records\`, \`creditsCost\`) or an \`error\` with a code; \`data.creditsCost\` is the sum of the successful items. Exchange needs an API key on a team with Exchange access.
 
-URL mode only: set \`domainTools: true\` to also return domain-matched Firecrawl Exchange tools for the page in \`data.tools\`.
+URL mode only: set \`domainTools: true\` to also return domain-matched Alexandria tools for the page in \`data.tools\`.
 
-Exchange execution errors relay a \`code\` and \`chargeId\`: \`request_in_flight\` (409) retry the same requestId later; \`request_unresolved\` (503) keep the requestId for reconciliation, never mint a new one; \`duplicate_request\` (409) the requestId belongs to a different payload; \`unknown_provider\` (404), \`insufficient_credits\` (402), and \`billing_unavailable\` (503) mean nothing executed. A terms-gated Alexandria provider returns \`THIRD_PARTY_DATA_TERMS_REQUIRED\` (403) with \`requiresAction.url\`: a human organization admin must visit that URL and accept the terms before the identical call can succeed; this tool cannot accept them.
+Alexandria execution errors relay a \`code\` and \`chargeId\`: \`request_in_flight\` (409) retry the same requestId later; \`request_unresolved\` (503) keep the requestId for reconciliation, never mint a new one; \`duplicate_request\` (409) the requestId belongs to a different payload; \`unknown_provider\` (404), \`insufficient_credits\` (402), and \`billing_unavailable\` (503) mean nothing executed. A terms-gated Alexandria provider returns \`THIRD_PARTY_DATA_TERMS_REQUIRED\` (403) with \`requiresAction.url\`: a human organization admin must visit that URL and accept the terms before the identical call can succeed; this tool cannot accept them.
 `,
   parameters: scrapeToolParamsSchema,
   execute: async (args: unknown, { session, log }): Promise<string> => {
