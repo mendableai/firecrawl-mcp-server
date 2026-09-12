@@ -1036,7 +1036,7 @@ test('local keyless stdio keeps profile guidance keyless-scoped and exposes shar
   assert.match(keylessGuidance, /firecrawl_scrape retrieves one supplied page/i);
   assert.match(
     keylessGuidance,
-    /firecrawl_parse uploads local file bytes to the API in local MCP and uses a two-phase upload flow in hosted MCP/i
+    /In local MCP, firecrawl_parse requires FIRECRAWL_API_URL.*before reading or uploading files.*Hosted MCP uses a two-phase upload flow/i
   );
   assert.doesNotMatch(
     keylessGuidance,
