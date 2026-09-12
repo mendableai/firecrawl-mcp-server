@@ -554,12 +554,8 @@ jobs require `endpoint`, `jobId`, `rating`, `task`, `assessment`, and 1-20
 `source_comparison`, or `expectation`. Source comparisons also require
 `comparison: {reference, detail}`.
 
-For Search, report useful or irrelevant results by source group and one-based
-position, or missing information with a topic and any already-known source URLs.
-For Scrape, report correct, missing, incorrect, or failed output. For Parse,
-report correct output or text, table, layout, or completeness issues. The tool
-description lists the complete fields. Use only available evidence and keep
-unverified expectations distinct from source comparisons.
+The tool description lists the category fields below. Use only available evidence
+and keep unverified expectations distinct from source comparisons.
 
 Keyless submissions are limited to one per identity per UTC day across Search,
 Scrape, Parse, and all clients, with references valid for 24 hours. Feedback remains
@@ -573,6 +569,16 @@ job's authentication; adding credentials does not convert a keyless job.
 
 Keep feedback concise: use issue codes, tags, short notes, URLs, page numbers,
 and small metadata objects. Do not include raw scrape/parse outputs.
+
+**Keyless observation fields**
+
+Search: useful and irrelevant require a one-based position within the delivered group. source is web, images, or news; required for jobs requesting multiple sources, otherwise defaults to web. The position must exist in that requested group. irrelevant requires reason: aggregator_over_official, off_topic, stale, wrong_content_type, snippet_misleading, or blocked_or_paywalled. vertical is required on missing and optional on useful/irrelevant: web_general, social, business, research, developer, news, government, finance, or other. missing may include topic (up to 200 characters) and knownSources (up to 20 HTTP(S) URLs).
+
+Scrape: kind correct, wrong_success, incomplete, or incorrect. wrong_success requires reason: blocked_shell, login_required, paywall, empty, wrong_page, stale, or wrong_locale. incomplete requires reason: partial_content, dynamic_content, pagination, main_content_stripped, or format_lost. incorrect requires reason: wrong, hallucinated, or missing_fields. correct has no reason. Optional location is up to 200 characters. No retryOutcome. Hard-failed Scrape jobs receive no feedback invitation.
+
+Parse: docClass is required once per submission: born_digital, scanned, mixed, or unknown. Observation kind: correct, text_ocr, table, formula, chart_figure, reading_order, headers_footers, headings_formatting, completeness, images_dropped, or incorrect. text_ocr requires reason: misread_chars, garbled, or missing_text. table requires reason: structure, cells_glued, or digits. completeness requires reason: pages_missing, truncated_at_max_pages, or sections_dropped. incorrect requires reason: wrong, hallucinated, or missing_fields. Other kinds have no reason subtype. Optional page is a one-based positive integer.
+
+Scrape and Parse: format must be a format type the job requested. It is required for output and source_comparison observations when multiple formats were requested; optional for expectation observations and single-format jobs. All observations retain detail and basis; source_comparison requires comparison: {reference, detail}.
 
 **Authenticated feedback preference:** set `FIRECRAWL_NO_ENDPOINT_FEEDBACK=1` (or `FIRECRAWL_DISABLE_ENDPOINT_FEEDBACK=1`) to hide `firecrawl_feedback` from authenticated sessions. Keyless sessions retain the tool and server-issued invitations regardless of these flags. The API controls invitation frequency and eligibility. Submitting feedback remains optional and is never required for continued keyless access.
 

@@ -3128,6 +3128,27 @@ test('hosted keyless feedback bypasses exhausted operation allowance and preserv
         'feedback-test-secret'
       );
       assert.equal(submission.body.observations[0].position, 1);
+      if (status === 200) {
+        for (const endpoint of ['scrape', 'parse']) {
+          const args = {
+            endpoint,
+            jobId: '00000000-0000-4000-8000-000000000000',
+            rating: 'partial',
+            task: 'Extract the documented retry interval',
+            assessment: 'The structured output omitted the retry interval.',
+            ...(endpoint === 'parse' ? {docClass: 'born_digital'} : {}),
+            observations: [{kind: 'incorrect', reason: 'missing_fields', format: 'json',
+              basis: 'output', detail: 'The returned object has no retry interval.',
+              ...(endpoint === 'parse' ? {page: 2} : {location: 'Retry section'})}],
+          };
+          const call = await httpToolCall(port, {id: `feedback-${endpoint}`, headers: {'x-forwarded-for': '203.0.113.71'}, params: {name: 'firecrawl_feedback', arguments: args}});
+          assert.equal(JSON.parse(parseSseJson(await call.text()).result.content[0].text).success, true);
+          const posted = backend.requests.filter(req => req.url === '/v2/feedback').at(-1).body;
+          assert.deepEqual(posted.observations, args.observations);
+          assert.equal(posted.docClass, args.docClass);
+        }
+      }
+
       assert.equal(
         backend.requests.some((req) => req.url === '/v2/keyless/eligibility'),
         false
