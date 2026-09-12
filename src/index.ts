@@ -1060,14 +1060,112 @@ function buildExchangeDiscoverPath(args: ExchangeDiscoverArgs): string {
   return `/exchange/discover${segments.length ? `/${segments.join('/')}` : ''}${query ? `?${query}` : ''}`;
 }
 
+const TERMS_REQUIRED_CODE = 'THIRD_PARTY_DATA_TERMS_REQUIRED';
+
+type TermsRequiredAction = {
+  type: 'accept_terms';
+  terms: string;
+  version: string;
+  url: string;
+};
+
+type ExchangeErrorContext = { tool: string; requestId?: string };
+
+function termsRequiredAction(body: unknown): TermsRequiredAction | undefined {
+  const data = body as
+    | { code?: unknown; requiresAction?: unknown }
+    | null
+    | undefined;
+  if (data?.code !== TERMS_REQUIRED_CODE) return undefined;
+  const action = data.requiresAction as
+    | Partial<TermsRequiredAction>
+    | null
+    | undefined;
+  if (
+    action?.type !== 'accept_terms' ||
+    typeof action.terms !== 'string' ||
+    typeof action.version !== 'string' ||
+    typeof action.url !== 'string'
+  )
+    return undefined;
+  return {
+    type: 'accept_terms',
+    terms: action.terms,
+    version: action.version,
+    url: action.url,
+  };
+}
+
+function termsRequiredError(
+  action: TermsRequiredAction,
+  context: ExchangeErrorContext
+): UserError {
+  const requestId = context.requestId ?? randomUUID();
+  const message = `Alexandria provider terms required. An organization admin must accept the ${action.terms} provider's terms (version ${action.version}) before this request can run.`;
+  return new UserError(
+    `${message}\n\n1. Ask a Firecrawl organization admin to sign in and accept at ${action.url} . Acceptance is a legal act by a human and cannot be performed through this tool; do not try.\n2. After they confirm, call ${context.tool} again with the identical payload and requestId ${requestId}. If it still fails with the same code, wait a few seconds and retry once.\n\nNo credits were charged. Do not retry until acceptance is confirmed.`,
+    {
+      code: TERMS_REQUIRED_CODE,
+      status: 403,
+      message,
+      requestId,
+      requiresAction: action,
+      next_actions: [
+        {
+          kind: 'human_action_required',
+          action: 'accept_terms',
+          who: 'organization_admin',
+          url: action.url,
+          provider: action.terms,
+          version: action.version,
+        },
+        {
+          kind: 'retry_same_request',
+          tool: context.tool,
+          requestId,
+          after: 'human_action_required',
+        },
+      ],
+    }
+  );
+}
+
+function throwIfTermsRequired(
+  error: unknown,
+  context: ExchangeErrorContext
+): void {
+  const source = error as
+    | { response?: { data?: unknown }; details?: unknown }
+    | null
+    | undefined;
+  const action = termsRequiredAction(source?.response?.data ?? source?.details);
+  if (action) throw termsRequiredError(action, context);
+}
+
+async function relayTermsRequired<T>(
+  run: () => Promise<T>,
+  context: ExchangeErrorContext
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    throwIfTermsRequired(error, context);
+    throw error;
+  }
+}
+
 // Exchange errors arrive as {success:false, error, code?, chargeId?} with the
 // upstream status (403 without the team flag, 402/409 once billing lands, 5xx
 // when the Exchange is unreachable). Relay the message, code, and any chargeId
 // so the agent can act on them; a 401 is left to the credential recovery path.
-async function relayExchangeError(run: () => Promise<any>): Promise<any> {
+async function relayExchangeError(
+  run: () => Promise<any>,
+  context: ExchangeErrorContext
+): Promise<any> {
   try {
     return await run();
   } catch (error) {
+    throwIfTermsRequired(error, context);
     const response = (
       error as { response?: { status?: number; data?: unknown } } | null
     )?.response;
@@ -1128,7 +1226,7 @@ const openAiAppsChallengeToken = normalizeHeader(
 
 const FULL_PROFILE_INSTRUCTIONS =
   ALEXANDRIA_INSTRUCTIONS +
-  ` firecrawl_skills_resolve matches query mentions and page URLs, and firecrawl_skill reads a Markdown contract. Execution with firecrawl_scrape alexandria uses requestId; reuse the returned ID for retries of the same payload, never a new ID to bypass a pending or uncertain 409. Firecrawl provides web search, page retrieval, site URL discovery, multi-page collection, structured page data, monitoring, and multi-source research that returns structured data. Match the requested operation to the tool boundary: firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema, firecrawl_map enumerates URLs under a site without retrieving their content, and firecrawl_agent runs multi-source research and returns structured data when the URLs are not known or the answer spans several sites (an entity plus its fields, a list, a dataset); its result is read with firecrawl_agent_status. For biomedical, life-science, clinical, or arXiv literature, the firecrawl_research_* tools search a paper index of abstracts and full text; firecrawl_search with categories: ["research"] is a website filter over ordinary web results and reaches different sources. For a programming question — code behaviour, a library or framework, an API contract, an error message, or a known bug — firecrawl_developer_search (or firecrawl_search with categories: ["developer"]) searches an index of repositories, GitHub issues, merged pull requests, READMEs, and curated documentation sites. Firecrawl Exchange is a catalogue of data providers: firecrawl_search with sources: [{type: "alexandria"}] returns complete tool contracts in data.tools, firecrawl_find_tools walks providers, groups, and capabilities to progressively read contracts, and firecrawl_scrape with alexandria: [{provider, capability, options}] executes up to ten capabilities and reports data.creditsCost. Exchange access needs an API key on a team with Exchange enabled. Provide only the required inputs and account for stated network or external side effects.`;
+  ` firecrawl_skills_resolve matches query mentions and page URLs, and firecrawl_skill reads a Markdown contract. Execution with firecrawl_scrape alexandria uses requestId; reuse the returned ID for retries of the same payload, never a new ID to bypass a pending or uncertain 409. Firecrawl provides web search, page retrieval, site URL discovery, multi-page collection, structured page data, monitoring, and multi-source research that returns structured data. Match the requested operation to the tool boundary: firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema, firecrawl_map enumerates URLs under a site without retrieving their content, and firecrawl_agent runs multi-source research and returns structured data when the URLs are not known or the answer spans several sites (an entity plus its fields, a list, a dataset); its result is read with firecrawl_agent_status. For biomedical, life-science, clinical, or arXiv literature, the firecrawl_research_* tools search a paper index of abstracts and full text; firecrawl_search with categories: ["research"] is a website filter over ordinary web results and reaches different sources. For a programming question — code behaviour, a library or framework, an API contract, an error message, or a known bug — firecrawl_developer_search (or firecrawl_search with categories: ["developer"]) searches an index of repositories, GitHub issues, merged pull requests, READMEs, and curated documentation sites. Alexandria is a catalogue of data providers: firecrawl_search with sources: [{type: "alexandria"}] returns complete tool contracts in data.tools, firecrawl_find_tools walks providers, groups, and capabilities to progressively read contracts, and firecrawl_scrape with alexandria: [{provider, capability, options}] executes up to ten capabilities and reports data.creditsCost. Alexandria access needs an API key on a team with it enabled. A terms-gated Alexandria provider fails with code THIRD_PARTY_DATA_TERMS_REQUIRED and a requiresAction.url that a human organization admin must visit to accept the terms; no tool can accept them. Provide only the required inputs and account for stated network or external side effects.`;
 const KEYLESS_PROFILE_INSTRUCTIONS = `Hosted keyless sessions expose firecrawl_search, firecrawl_scrape, and firecrawl_parse with usage limits. firecrawl_search searches the web. For programming questions, firecrawl_search with categories: ["developer"] searches indexed repositories, GitHub issues, merged pull requests, repository READMEs, and curated documentation sites. For biomedical, life-science, clinical, or arXiv literature, firecrawl_search with categories: ["research"] filters ordinary web results to research-affiliated websites. firecrawl_scrape retrieves one supplied page and can return JSON matching a supplied schema. firecrawl_parse processes supported local files through its two-phase upload flow. An Authorization bearer API key can provide higher usage limits and expose additional tools, subject to plan, deployment, and team policy, including firecrawl_map for site URL discovery, firecrawl_agent and firecrawl_agent_status for multi-source research that returns structured data when the URLs are not known, firecrawl_research_* for paper-index and repository research, and firecrawl_exchange_discover with the Exchange options of firecrawl_search and firecrawl_scrape for catalogued data providers.`;
 
 // The search surface exposes web/developer/research search only. Its instructions
@@ -2342,7 +2440,7 @@ Alexandria mode: pass \`alexandria\` (one \`{provider, capability, options}\` ob
 
 URL mode only: set \`domainTools: true\` to also return domain-matched Firecrawl Exchange tools for the page in \`data.tools\`.
 
-Exchange execution errors relay a \`code\` and \`chargeId\`: \`request_in_flight\` (409) retry the same requestId later; \`request_unresolved\` (503) keep the requestId for reconciliation, never mint a new one; \`duplicate_request\` (409) the requestId belongs to a different payload; \`unknown_provider\` (404), \`insufficient_credits\` (402), and \`billing_unavailable\` (503) mean nothing executed.
+Exchange execution errors relay a \`code\` and \`chargeId\`: \`request_in_flight\` (409) retry the same requestId later; \`request_unresolved\` (503) keep the requestId for reconciliation, never mint a new one; \`duplicate_request\` (409) the requestId belongs to a different payload; \`unknown_provider\` (404), \`insufficient_credits\` (402), and \`billing_unavailable\` (503) mean nothing executed. A terms-gated Alexandria provider returns \`THIRD_PARTY_DATA_TERMS_REQUIRED\` (403) with \`requiresAction.url\`: a human organization admin must visit that URL and accept the terms before the identical call can succeed; this tool cannot accept them.
 `,
   parameters: scrapeToolParamsSchema,
   execute: async (args: unknown, { session, log }): Promise<string> => {
@@ -2385,10 +2483,14 @@ Exchange execution errors relay a \`code\` and \`chargeId\`: \`request_in_flight
       return asText(json?.data ?? json);
     }
     const client = getClient(session);
-    const res = await client.scrape(String(url), {
-      ...cleaned,
-      origin: ORIGIN,
-    } as any);
+    const res = await relayTermsRequired(
+      () =>
+        client.scrape(String(url), {
+          ...cleaned,
+          origin: ORIGIN,
+        } as any),
+      { tool: 'firecrawl_scrape', requestId: session?.requestId }
+    );
     return asText(res);
   },
 });
@@ -2510,9 +2612,10 @@ ${ALEXANDRIA_INSTRUCTIONS}
     const client = getClient(session);
     const postSearch = () =>
       (client as any).http.post('/v2/search', searchBody);
+    const context = { tool: 'firecrawl_search', requestId: session?.requestId };
     const httpRes = exchangeSource
-      ? await relayExchangeError(postSearch)
-      : await postSearch();
+      ? await relayExchangeError(postSearch, context)
+      : await relayTermsRequired(postSearch, context);
     return asText(httpRes?.data ?? {});
   },
 });
@@ -2541,7 +2644,8 @@ async function executeExchangeCalls(
           headers: { 'x-request-id': requestId },
           ...(timeout !== undefined ? { timeoutMs: timeout + 5000 } : {}),
         }
-      )
+      ),
+      { tool: 'firecrawl_scrape', requestId }
     );
     return asText({ ...(response?.data ?? {}), requestId });
   } catch (error) {
@@ -2592,8 +2696,9 @@ Legacy semantic hits carry no option schema, so walk to the capability address b
     const pathName = buildExchangeDiscoverPath(args as ExchangeDiscoverArgs);
     log.info('Discovering Exchange capabilities', { path: pathName });
     const client = getClient(session);
-    const httpRes = await relayExchangeError(() =>
-      (client as any).http.get(pathName, ORIGIN_HEADERS)
+    const httpRes = await relayExchangeError(
+      () => (client as any).http.get(pathName, ORIGIN_HEADERS),
+      { tool: 'firecrawl_exchange_discover', requestId: session?.requestId }
     );
     return asText(httpRes?.data ?? {});
   },
@@ -2624,12 +2729,14 @@ server.addTool({
     ),
   execute: async (args, { session }): Promise<string> => {
     assertExchangeCredential(session);
-    const response = await relayExchangeError(() =>
-      (getClient(session) as any).http.post(
-        '/exchange/skills/resolve',
-        JSON.stringify(args),
-        { headers: { 'Content-Type': 'application/json' } }
-      )
+    const response = await relayExchangeError(
+      () =>
+        (getClient(session) as any).http.post(
+          '/exchange/skills/resolve',
+          JSON.stringify(args),
+          { headers: { 'Content-Type': 'application/json' } }
+        ),
+      { tool: 'firecrawl_skills_resolve', requestId: session?.requestId }
     );
     return asText(response?.data ?? {});
   },
@@ -2653,11 +2760,13 @@ server.addTool({
   }),
   execute: async ({ id }, { session }): Promise<string> => {
     assertExchangeCredential(session);
-    const response = await relayExchangeError(() =>
-      (getClient(session) as any).http.get(
-        `/exchange/skills/${encodeURIComponent(id)}/SKILL.md`,
-        ORIGIN_HEADERS
-      )
+    const response = await relayExchangeError(
+      () =>
+        (getClient(session) as any).http.get(
+          `/exchange/skills/${encodeURIComponent(id)}/SKILL.md`,
+          ORIGIN_HEADERS
+        ),
+      { tool: 'firecrawl_skill', requestId: session?.requestId }
     );
     return typeof response?.data === 'string'
       ? response.data
@@ -2792,6 +2901,13 @@ async function keylessPost(
             : undefined,
       });
       throw new UserError(String(payload.message), payload);
+    }
+    const termsAction = termsRequiredAction(json);
+    if (termsAction) {
+      throw termsRequiredError(termsAction, {
+        tool: path === '/v2/search' ? 'firecrawl_search' : 'firecrawl_scrape',
+        requestId: session?.requestId,
+      });
     }
     throw new Error(
       json?.error || `Firecrawl request failed (HTTP ${response.status})`
@@ -3457,10 +3573,14 @@ This acts on the live site, so actions such as form submission can create persis
     if (openedFromUrl) {
       log.info('Opening interact session from url', { url });
       const cleanedScrapeOptions = removeEmptyTopLevel(scrapeOptions ?? {});
-      const scraped = await client.scrape(String(url), {
-        ...cleanedScrapeOptions,
-        origin: ORIGIN,
-      } as any);
+      const scraped = await relayTermsRequired(
+        () =>
+          client.scrape(String(url), {
+            ...cleanedScrapeOptions,
+            origin: ORIGIN,
+          } as any),
+        { tool: 'firecrawl_interact', requestId: session?.requestId }
+      );
       scrapeId = (scraped as any)?.metadata?.scrapeId;
       if (!scrapeId) {
         return asText({
@@ -3711,9 +3831,10 @@ Returns \`{ success, data, id, creditsUsed }\`, with source arrays in \`data\`.
       const client = getClientFn(session);
       const postSearch = () =>
         (client as any).http.post('/v2/search', searchBody);
+      const context = { tool: 'firecrawl_search', requestId: session?.requestId };
       const httpRes = exchangeSource
-        ? await relayExchangeError(postSearch)
-        : await postSearch();
+        ? await relayExchangeError(postSearch, context)
+        : await relayTermsRequired(postSearch, context);
       return asText(httpRes?.data ?? {});
     },
   });

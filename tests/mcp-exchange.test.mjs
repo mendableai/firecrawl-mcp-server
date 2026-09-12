@@ -94,6 +94,19 @@ async function stopChild(child) {
 // Stands in for the Firecrawl API's Exchange surface (and, for the hosted
 // tests, the OAuth issuer's keyless eligibility check). Every request is
 // recorded so tests can assert the exact outbound bodies and paths.
+const TERMS_REQUIRED_BODY = {
+  success: false,
+  code: "THIRD_PARTY_DATA_TERMS_REQUIRED",
+  error:
+    "An organization admin must accept the benzinga provider's terms (version 2026-09-12-placeholder) before this request can run. Accept them at https://www.firecrawl.dev/app/alexandria/benzinga",
+  requiresAction: {
+    type: "accept_terms",
+    terms: "benzinga",
+    version: "2026-09-12-placeholder",
+    url: "https://www.firecrawl.dev/app/alexandria/benzinga",
+  },
+};
+
 async function startFakeExchangeApi(options = {}) {
   const { keylessEligible = false } = options;
   const requests = [];
@@ -145,6 +158,9 @@ async function startFakeExchangeApi(options = {}) {
           error: 'Exchange is not enabled for this team.',
         });
       }
+      if (parsedBody?.alexandria?.[0]?.provider === 'benzinga') {
+        return json(403, TERMS_REQUIRED_BODY);
+      }
       if (parsedBody?.alexandria?.[0]?.provider === 'inflight') {
         return json(409, {
           success: false,
@@ -182,6 +198,9 @@ async function startFakeExchangeApi(options = {}) {
             creditsCost: 1,
           },
         });
+      }
+      if (parsedBody?.url === 'https://benzinga.example/news') {
+        return json(403, TERMS_REQUIRED_BODY);
       }
       if (parsedBody?.url) {
         return json(200, {
@@ -571,6 +590,64 @@ test('firecrawl_scrape relays an Exchange 403 as an explanatory tool error', asy
   assert.match(result.content[0].text, /Exchange is not enabled for this team/);
   assert.equal(result.structuredContent.status, 403);
   assert.equal(result.structuredContent.code, 'exchange_error');
+});
+
+test('firecrawl_scrape relays an Alexandria THIRD_PARTY_DATA_TERMS_REQUIRED as a human handoff', async (t) => {
+  const { api, client } = await startStdioWithApi(t);
+
+  const result = await callExpectingError(client, {
+    arguments: {
+      alexandria: [{ provider: 'benzinga', capability: 'news', options: { tickers: 'AAPL' } }],
+    },
+    name: 'firecrawl_scrape',
+  });
+  assert.equal(api.requests.length, 1);
+  assert.equal(result.transportError, undefined, 'a 403 must surface in-band');
+  assert.match(result.content[0].text, /https:\/\/www\.firecrawl\.dev\/app\/alexandria\/benzinga/);
+  assert.match(result.content[0].text, /admin/);
+  assert.equal(result.structuredContent.code, 'THIRD_PARTY_DATA_TERMS_REQUIRED');
+  assert.equal(result.structuredContent.status, 403);
+  assert.deepEqual(
+    result.structuredContent.requiresAction,
+    TERMS_REQUIRED_BODY.requiresAction
+  );
+  const requestId = api.requests[0].headers['x-request-id'];
+  assert.equal(result.structuredContent.requestId, requestId);
+  assert.deepEqual(result.structuredContent.next_actions, [
+    {
+      kind: 'human_action_required',
+      action: 'accept_terms',
+      who: 'organization_admin',
+      url: TERMS_REQUIRED_BODY.requiresAction.url,
+      provider: 'benzinga',
+      version: '2026-09-12-placeholder',
+    },
+    {
+      kind: 'retry_same_request',
+      tool: 'firecrawl_scrape',
+      requestId,
+      after: 'human_action_required',
+    },
+  ]);
+});
+
+test('plain-URL firecrawl_scrape relays the same Alexandria terms handoff from the SDK error', async (t) => {
+  const { api, client } = await startStdioWithApi(t);
+
+  const result = await callExpectingError(client, {
+    arguments: { url: 'https://benzinga.example/news' },
+    name: 'firecrawl_scrape',
+  });
+  assert.equal(api.requests.length, 1);
+  assert.equal(result.transportError, undefined, 'a 403 must surface in-band');
+  assert.match(result.content[0].text, /https:\/\/www\.firecrawl\.dev\/app\/alexandria\/benzinga/);
+  assert.match(result.content[0].text, /admin/);
+  assert.equal(result.structuredContent.code, 'THIRD_PARTY_DATA_TERMS_REQUIRED');
+  assert.deepEqual(
+    result.structuredContent.requiresAction,
+    TERMS_REQUIRED_BODY.requiresAction
+  );
+  assert.equal(result.structuredContent.next_actions[1].tool, 'firecrawl_scrape');
 });
 
 test('firecrawl_scrape relays a reserved 409 billing error with its code and chargeId', async (t) => {

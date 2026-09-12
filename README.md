@@ -1056,7 +1056,32 @@ No arguments lists cohorts; `cohort` lists providers (`expand: "all"` inlines th
 
 Execution generates one `x-request-id` and returns it on success or failure. Retry
 the identical payload with that `requestId`; do not create a new ID after an
-uncertain outcome. Provider terms and available credits are checked by the API.
+uncertain outcome. Available credits are checked by the API.
+
+An Alexandria provider whose terms the team has not accepted fails before anything runs with
+HTTP 403 and this body:
+
+```json
+{
+  "success": false,
+  "code": "THIRD_PARTY_DATA_TERMS_REQUIRED",
+  "error": "An organization admin must accept the benzinga provider's terms (version 2026-09-12-placeholder) before this request can run. Accept them at https://www.firecrawl.dev/app/alexandria/benzinga",
+  "requiresAction": {
+    "type": "accept_terms",
+    "terms": "benzinga",
+    "version": "2026-09-12-placeholder",
+    "url": "https://www.firecrawl.dev/app/alexandria/benzinga"
+  }
+}
+```
+
+The tool result relays it as an error with `structuredContent` carrying `code`,
+`status: 403`, `requestId`, the `requiresAction` object unchanged, and
+`next_actions` (`human_action_required` then `retry_same_request`). Accepting
+terms is a legal act by a signed-in organization admin in the dashboard at
+`requiresAction.url`; the MCP server never accepts them and has no tool that
+does. No credits are charged. Once a person confirms acceptance, call the same
+tool again with the identical payload and `requestId`.
 
 ## Logging System
 
